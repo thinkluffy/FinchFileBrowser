@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Finch
+Comment=Finder-style column view file browser
+Comment[zh_CN]=Finder 风格的分栏文件浏览器
+Exec=finch %f
+Icon=system-file-manager
+Terminal=false
+StartupWMClass=finch
+Categories=System;FileTools;FileManager;Utility;
+MimeType=inode/directory;
+Keywords=files;folder;column;miller;finder;

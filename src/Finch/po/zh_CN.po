@@ -1,0 +1,257 @@
+# Simplified Chinese translation for Finch.
+# Copyright (C) 2026 Yuanbin Cai
+# This file is distributed under the same license as the Finch package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: finch\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-05 21:57+0800\n"
+"PO-Revision-Date: 2026-11-05 18:00+0800\n"
+"Last-Translator: Yuanbin Cai\n"
+"Language-Team: Chinese (Simplified)\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: ../app/column.py:222
+msgid "Empty folder"
+msgstr "空文件夹"
+
+#: ../app/column.py:290
+msgid "Could not rename"
+msgstr "无法重命名"
+
+#: ../app/column.py:327
+msgid "Could not move to trash"
+msgstr "无法移到回收站"
+
+#: ../app/column.py:336
+#, python-format
+msgid "Permanently delete “%s”?"
+msgstr "永久删除“%s”？"
+
+#: ../app/column.py:337
+msgid ""
+"This item will be deleted immediately, bypassing the trash. This cannot be "
+"undone."
+msgstr "这个操作不经过回收站，无法撤销。"
+
+#: ../app/column.py:339
+msgid "_Delete"
+msgstr "删除(_D)"
+
+#: ../app/column.py:348
+msgid "Could not delete"
+msgstr "无法删除"
+
+#: ../app/column.py:363
+msgid "Could not restore"
+msgstr "无法还原"
+
+#: ../app/column.py:364
+msgid "The original location of this item is unknown."
+msgstr "不知道这个项目原来的位置。"
+
+#: ../app/column.py:374
+#, python-format
+msgid "Could not restore to %s"
+msgstr "无法还原到 %s"
+
+#: ../app/column.py:381
+msgid "Empty trash?"
+msgstr "清空回收站？"
+
+#: ../app/column.py:382
+msgid ""
+"All items in the trash will be permanently deleted. This cannot be undone."
+msgstr "回收站里的所有项目都会被永久删除，无法撤销。"
+
+#: ../app/column.py:384
+msgid "_Empty Trash"
+msgstr "清空(_E)"
+
+#: ../app/column.py:397
+msgid "Some items could not be deleted"
+msgstr "部分项目无法删除"
+
+#: ../app/preview.py:39 ../app/window.py:392 ../app/window.py:403
+msgid "Open"
+msgstr "打开"
+
+#: ../app/preview.py:124
+msgid "Kind"
+msgstr "类型"
+
+#: ../app/preview.py:125
+msgid "Size"
+msgstr "大小"
+
+#: ../app/preview.py:128
+msgid "Modified"
+msgstr "修改"
+
+#: ../app/preview.py:132
+msgid "Links to"
+msgstr "链接到"
+
+#: ../app/sidebar.py:11
+msgid "Places"
+msgstr "位置"
+
+#: ../app/sidebar.py:11
+msgid "Devices"
+msgstr "设备"
+
+#: ../app/sidebar.py:11
+msgid "Cloud"
+msgstr "云端"
+
+#: ../app/sidebar.py:12
+msgid "Bookmarks"
+msgstr "书签"
+
+#: ../app/sidebar.py:12 ../app/window.py:278
+msgid "Network"
+msgstr "网络"
+
+#: ../app/sidebar.py:12
+msgid "Other"
+msgstr "其他"
+
+#. TRANSLATORS: device usage, e.g. "12.3 GB used of 60.0 GB (21%)"
+#: ../app/sidebar.py:176
+#, python-format
+msgid "%(used)s used of %(size)s (%(percent).0f%%)"
+msgstr "已用 %(used)s，共 %(size)s（%(percent).0f%%）"
+
+#: ../app/util.py:57 ../app/window.py:451
+msgid "Could not open"
+msgstr "无法打开"
+
+#: ../app/util.py:75
+msgid "_Cancel"
+msgstr "取消(_C)"
+
+#: ../app/window.py:43
+msgid "Back (Alt+←)"
+msgstr "后退 (Alt+←)"
+
+#: ../app/window.py:44
+msgid "Forward (Alt+→)"
+msgstr "前进 (Alt+→)"
+
+#: ../app/window.py:45
+msgid "Up (Alt+↑)"
+msgstr "上一级 (Alt+↑)"
+
+#: ../app/window.py:51
+msgid "Path"
+msgstr "路径"
+
+#: ../app/window.py:56
+msgid "Show Hidden Files"
+msgstr "显示隐藏文件"
+
+#: ../app/window.py:57
+msgid "Reload"
+msgstr "刷新"
+
+#: ../app/window.py:58 ../app/window.py:399 ../app/window.py:409
+#: ../app/window.py:419
+msgid "Open in Nemo"
+msgstr "在 Nemo 中打开"
+
+#: ../app/window.py:59 ../app/window.py:411 ../app/window.py:421
+msgid "Open in Terminal"
+msgstr "在终端中打开"
+
+#: ../app/window.py:61
+msgid "New Folder (Ctrl+Shift+N)"
+msgstr "新建文件夹 (Ctrl+Shift+N)"
+
+#: ../app/window.py:212
+msgid "Untitled Folder"
+msgstr "未命名文件夹"
+
+#: ../app/window.py:221
+msgid "Could not create folder"
+msgstr "无法新建文件夹"
+
+#: ../app/window.py:278
+msgid "Trash"
+msgstr "回收站"
+
+#: ../app/window.py:278
+msgid "Recent"
+msgstr "最近使用"
+
+#: ../app/window.py:279
+msgid "Computer"
+msgstr "计算机"
+
+#: ../app/window.py:292
+#, python-format
+msgid "%d item"
+msgid_plural "%d items"
+msgstr[0] "%d 项"
+
+#: ../app/window.py:299
+#, python-format
+msgid "%s free"
+msgstr "可用 %s"
+
+#. TRANSLATORS: separator between the parts of the status line
+#: ../app/window.py:304
+msgid ", "
+msgstr "，"
+
+#: ../app/window.py:370
+msgid "Could not open path"
+msgstr "无法打开路径"
+
+#: ../app/window.py:393 ../app/window.py:404
+msgid "Open With…"
+msgstr "打开方式…"
+
+#: ../app/window.py:396
+msgid "Restore"
+msgstr "还原"
+
+#: ../app/window.py:397
+msgid "Delete Permanently"
+msgstr "彻底删除"
+
+#: ../app/window.py:401
+msgid "Empty Trash"
+msgstr "清空回收站"
+
+#: ../app/window.py:406
+msgid "Rename"
+msgstr "重命名"
+
+#: ../app/window.py:413
+msgid "Show in Nemo"
+msgstr "在 Nemo 中显示"
+
+#: ../app/window.py:414 ../app/window.py:422
+msgid "Copy Path"
+msgstr "复制路径"
+
+#: ../app/window.py:416
+msgid "Move to Trash"
+msgstr "移到回收站"
+
+#: ../app/window.py:417
+msgid "Delete"
+msgstr "删除"
+
+#: ../app/window.py:473
+msgid "Could not open terminal"
+msgstr "无法打开终端"
+
+#: ../app/window.py:474
+msgid "Only local folders can be opened in a terminal."
+msgstr "只有本地目录才能在终端中打开。"

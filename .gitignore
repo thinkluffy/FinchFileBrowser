@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+# build products (build.sh)
+output/
+# compiled catalogues (src/Finch/po/update.sh)
+src/Finch/app/locale/

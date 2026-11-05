@@ -1,0 +1,65 @@
+/* Finch: application-priority overrides on top of the GTK theme. */
+
+window.finch-main decoration,
+window.csd.finch-main {
+    border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+}
+/* The top row sits inside a box, so the theme does not round it
+   like a header bar placed directly under the window. */
+window.finch-main headerbar.title-row {
+    border-top-left-radius: 12px; border-top-right-radius: 12px;
+}
+window.finch-main.maximized headerbar.title-row,
+window.finch-main.tiled headerbar.title-row,
+window.finch-main.fullscreen headerbar.title-row {
+    border-top-left-radius: 0; border-top-right-radius: 0;
+}
+/* Two stacked header bars: no border or shadow between them, and
+   the lower one is a compact toolbar row. */
+headerbar.title-row { border-bottom-width: 0; box-shadow: none; }
+headerbar.tool-row { min-height: 0; padding-top: 0; padding-bottom: 4px;
+                     box-shadow: none; }
+headerbar.tool-row entry, headerbar.tool-row button {
+    margin-top: 0; margin-bottom: 0; min-height: 24px;
+}
+/* GtkPlacesSidebar keeps an invisible "new bookmark" drop target
+   row that still takes a full row of height; collapse it. */
+placessidebar row.sidebar-new-bookmark-row {
+    min-height: 0; padding-top: 0; padding-bottom: 0;
+}
+/* Eject/unmount: a plain small icon instead of the theme's round
+   button; it is rarely used and should not dominate the row. */
+placessidebar row button.sidebar-button {
+    min-width: 20px; min-height: 20px; padding: 2px; margin: 0;
+    background: none; background-image: none; border: none;
+    box-shadow: none; color: @theme_fg_color;
+}
+placessidebar row button.sidebar-button:hover {
+    background-color: alpha(@theme_fg_color, 0.12); border-radius: 4px;
+}
+placessidebar row button.sidebar-button image,
+placessidebar row button.sidebar-button:not(:hover):not(:active) > image {
+    -gtk-icon-transform: scale(1.15); opacity: 1;
+}
+/* The theme pads the right edge three times over (row margin,
+   row padding, revealer padding): keep the left, trim the right. */
+placessidebar row { padding-right: 4px; }
+placessidebar row > revealer { padding-right: 2px; }
+/* Space-usage bar under each mounted device in the sidebar. */
+levelbar.usage-bar trough { min-height: 2px; padding: 0; border: none;
+                            background-color: alpha(@theme_fg_color, 0.15); }
+levelbar.usage-bar block { min-height: 2px; border: none;
+                           background-color: alpha(@theme_fg_color, 0.55); }
+levelbar.usage-bar.warn block { background-color: #ED5F5D; }
+/* Selection in a column that does not have keyboard focus. */
+treeview.view.inactive:selected,
+treeview.view.inactive:selected:focus {
+    background-color: alpha(@theme_fg_color, 0.18);
+    color: @theme_fg_color;
+}
+/* The theme animates menu items (50ms hover background fade) and check
+   boxes (100ms colour/icon transition). A menu that is hidden the moment an
+   item is clicked still owes those transitions, and replays them on the first
+   frames of its next pop-up: the clicked row lights up and fades, the check
+   box fills in late. Menus should just show the current state. */
+menu > menuitem, menu menuitem check, menu menuitem radio { transition: none; }
