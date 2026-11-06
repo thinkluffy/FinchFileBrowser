@@ -226,6 +226,7 @@ class FinchWindow(Gtk.ApplicationWindow):
     def add_column(self, gfile, select=None, focus=False):
         col = Column(gfile, self.col_width, self.show_hidden)
         col.connect("item-selected", self._on_item_selected)
+        col.connect("selection-changed", self._on_selection_changed)
         col.connect("item-activated", self._on_item_activated)
         col.connect("width-changed", self._on_width_changed)
         col.connect("key-nav", self._on_key_nav)
@@ -365,9 +366,12 @@ class FinchWindow(Gtk.ApplicationWindow):
         if col is None:
             return
         parts = [ngettext("%d item", "%d items", col.item_count) % col.item_count]
-        gfile, info = col.selected()
-        if info is not None and info.get_file_type() != Gio.FileType.DIRECTORY:
-            parts.append(GLib.format_size(info.get_size()))
+        _gfiles, infos = col.selected_all()
+        files = [i for i in infos if i.get_file_type() != Gio.FileType.DIRECTORY]
+        if len(infos) > 1:
+            parts.append(ngettext("%d selected", "%d selected", len(infos)) % len(infos))
+        if files:
+            parts.append(GLib.format_size(sum(i.get_size() for i in files)))
         try:
             fs = col.gfile.query_filesystem_info("filesystem::free", None)
             if fs.has_attribute("filesystem::free") and not col.in_trash():
@@ -405,20 +409,33 @@ class FinchWindow(Gtk.ApplicationWindow):
                 # Remember the file with the current location, so that
                 # coming back here shows its preview again.
                 self._history[self._hist_pos] = (self.columns[0].gfile, gfile)
-            self.preview = Preview(self.col_width + PREVIEW_EXTRA)
-            # Takes whatever is left of the strip; its content stays centred.
-            # It goes in before it is filled and sized, so that its labels
-            # already have their styles and the room it is about to get is
-            # known: then the picture comes up at its final size instead of
-            # jumping to it after the first layout.
-            self.colbox.pack_start(self.preview, True, True, 0)
-            self.preview.set_height(self.colbox.get_allocated_height())
-            self._fit_preview(defer=False)
-            self.preview.set_file(gfile, info)
-            self.preview.show_all()
-            self._scroll_to_end_when_allocated(self.preview)
+            self._show_preview(lambda pv: pv.set_file(gfile, info))
             self._update_path(gfile)
         self._update_status()
+
+    def _on_selection_changed(self, col, gfiles, infos):
+        """Several items selected in `col`: nothing opens to the right but a
+        summary of them, and the location history is left alone."""
+        self.truncate_after(col)
+        self._target = None
+        self._show_preview(lambda pv: pv.set_files(gfiles, infos))
+        self._update_path(col.gfile)
+        self._update_status()
+
+    def _show_preview(self, fill):
+        """Put a new preview pane at the right end of the strip and `fill` it."""
+        self.preview = Preview(self.col_width + PREVIEW_EXTRA)
+        # Takes whatever is left of the strip; its content stays centred.
+        # It goes in before it is filled and sized, so that its labels
+        # already have their styles and the room it is about to get is
+        # known: then the picture comes up at its final size instead of
+        # jumping to it after the first layout.
+        self.colbox.pack_start(self.preview, True, True, 0)
+        self.preview.set_height(self.colbox.get_allocated_height())
+        self._fit_preview(defer=False)
+        fill(self.preview)
+        self.preview.show_all()
+        self._scroll_to_end_when_allocated(self.preview)
 
     def _on_item_activated(self, col, gfile, info):
         if info.get_file_type() == Gio.FileType.DIRECTORY:
@@ -477,7 +494,14 @@ class FinchWindow(Gtk.ApplicationWindow):
     def _on_context_menu(self, col, gfile, info, event):
         menu = Gtk.Menu()
         is_dir = gfile is not None and info.get_file_type() == Gio.FileType.DIRECTORY
-        target_dir = gfile if (gfile is None or is_dir) else None
+        # On one of several selected rows the menu acts on all of them.
+        gfiles, infos = col.selected_all()
+        multi = gfile is not None and len(gfiles) > 1
+
+        def open_all():
+            for g, i in zip(gfiles, infos):
+                if i.get_file_type() != Gio.FileType.DIRECTORY:
+                    launch_default(g, self)
 
         def item(label, cb):
             mi = Gtk.MenuItem(label=label)
@@ -491,7 +515,13 @@ class FinchWindow(Gtk.ApplicationWindow):
 
         if col.in_trash():
             # Trash: items can only be restored or destroyed.
-            if gfile is not None:
+            if multi:
+                item(_("Open"), open_all)
+                if col.is_trash_root():
+                    menu.append(Gtk.SeparatorMenuItem())
+                    item(_("Restore"), col.restore_item)
+                    item(_("Delete Permanently"), col.delete_item)
+            elif gfile is not None:
                 item(_("Open"), lambda: launch_default(gfile, self))
                 item(_("Open With…"), lambda: self.open_with(gfile))
                 if col.is_trash_root():
@@ -502,6 +532,15 @@ class FinchWindow(Gtk.ApplicationWindow):
                 item(_("Open in Nemo"), lambda: self.open_in_nemo(col.gfile))
                 if col.is_trash_root():
                     item(_("Empty Trash"), col.empty_trash)
+        elif multi:
+            item(_("Open"), open_all)
+            menu.append(Gtk.SeparatorMenuItem())
+            item(_("Cut"), lambda: clipboard.set_files(gfiles, cut=True))
+            item(_("Copy"), lambda: clipboard.set_files(gfiles))
+            paste(col.gfile)
+            menu.append(Gtk.SeparatorMenuItem())
+            item(_("Move to Trash"), col.trash_item)
+            item(_("Delete"), col.delete_item)
         elif gfile is not None:
             item(_("Open"), lambda: launch_default(gfile, self))
             item(_("Open With…"), lambda: self.open_with(gfile))
@@ -553,9 +592,9 @@ class FinchWindow(Gtk.ApplicationWindow):
 
     def copy_selection(self, cut=False):
         col = self._focused_column()
-        gfile = col.selected()[0] if col is not None else None
-        if gfile is not None:
-            self.copy_to_clipboard(gfile, cut=cut)
+        gfiles = col.selected_all()[0] if col is not None else []
+        if gfiles:
+            clipboard.set_files(gfiles, cut=cut)
 
     def paste(self, dest=None):
         """Paste the clipboard's files into the directory `dest` (default:
@@ -600,7 +639,7 @@ class FinchWindow(Gtk.ApplicationWindow):
             show_error(self, error_title, "\n".join(errors[:10]))
         col = self._column_for(dest) if created else None
         if col is not None:
-            col.reload_and_select(created[0])
+            col.reload_and_select(created)
 
     # -- external apps -------------------------------------------------------
     def open_with(self, gfile):

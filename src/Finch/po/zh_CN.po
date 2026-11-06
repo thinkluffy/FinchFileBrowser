@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: finch\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-06 15:13+0800\n"
+"POT-Creation-Date: 2026-11-06 16:30+0800\n"
 "PO-Revision-Date: 2026-11-05 18:00+0800\n"
 "Last-Translator: Yuanbin Cai\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -37,86 +37,134 @@ msgstr "无法把“%s”移动到它自身里面。"
 msgid "“%s” cannot be copied into itself."
 msgstr "无法把“%s”复制到它自身里面。"
 
-#: ../app/column.py:265
+#: ../app/column.py:285
 msgid "Empty folder"
 msgstr "空文件夹"
 
-#: ../app/column.py:336
+#: ../app/column.py:376
 msgid "Could not rename"
 msgstr "无法重命名"
 
-#: ../app/column.py:373 ../app/window.py:592
+#: ../app/column.py:425 ../app/window.py:631
 msgid "Could not move to trash"
 msgstr "无法移到回收站"
 
-#: ../app/column.py:382
+#: ../app/column.py:433
 #, python-format
 msgid "Permanently delete “%s”?"
 msgstr "永久删除“%s”？"
 
-#: ../app/column.py:383
+#: ../app/column.py:434
+#, python-format
+msgid "Permanently delete %d item?"
+msgid_plural "Permanently delete %d items?"
+msgstr[0] "永久删除这 %d 项？"
+
+#: ../app/column.py:437
 msgid ""
 "This item will be deleted immediately, bypassing the trash. This cannot be "
 "undone."
-msgstr "这个操作不经过回收站，无法撤销。"
+msgid_plural ""
+"These items will be deleted immediately, bypassing the trash. This cannot be "
+"undone."
+msgstr[0] "这个操作不经过回收站，无法撤销。"
 
-#: ../app/column.py:385
+#: ../app/column.py:441
 msgid "_Delete"
 msgstr "删除(_D)"
 
-#: ../app/column.py:394
+#: ../app/column.py:452
 msgid "Could not delete"
 msgstr "无法删除"
 
-#: ../app/column.py:409
+#: ../app/column.py:464
+#, python-format
+msgid "The original location of “%s” is unknown."
+msgstr "不知道“%s”原来的位置。"
+
+#: ../app/column.py:475
 msgid "Could not restore"
 msgstr "无法还原"
 
-#: ../app/column.py:410
-msgid "The original location of this item is unknown."
-msgstr "不知道这个项目原来的位置。"
-
-#: ../app/column.py:420
-#, python-format
-msgid "Could not restore to %s"
-msgstr "无法还原到 %s"
-
-#: ../app/column.py:427
+#: ../app/column.py:480
 msgid "Empty trash?"
 msgstr "清空回收站？"
 
-#: ../app/column.py:428
+#: ../app/column.py:481
 msgid ""
 "All items in the trash will be permanently deleted. This cannot be undone."
 msgstr "回收站里的所有项目都会被永久删除，无法撤销。"
 
-#: ../app/column.py:430
+#: ../app/column.py:483
 msgid "_Empty Trash"
 msgstr "清空(_E)"
 
-#: ../app/column.py:443
+#: ../app/column.py:496
 msgid "Some items could not be deleted"
 msgstr "部分项目无法删除"
 
-#: ../app/preview.py:42 ../app/window.py:495 ../app/window.py:506
+#: ../app/preview.py:43 ../app/window.py:519 ../app/window.py:525
+#: ../app/window.py:536 ../app/window.py:545
 msgid "Open"
 msgstr "打开"
 
-#: ../app/preview.py:152
+#: ../app/preview.py:156 ../app/preview.py:202
 msgid "Kind"
 msgstr "类型"
 
-#: ../app/preview.py:153
+#. TRANSLATORS: image size in pixels, e.g. "1920 × 1080"
+#: ../app/preview.py:163
+msgid "Dimensions"
+msgstr "分辨率"
+
+#: ../app/preview.py:163
+#, python-format
+msgid "%d × %d"
+msgstr "%d × %d"
+
+#: ../app/preview.py:164 ../app/preview.py:205
 msgid "Size"
 msgstr "大小"
 
-#: ../app/preview.py:156
+#: ../app/preview.py:167
 msgid "Modified"
 msgstr "修改"
 
-#: ../app/preview.py:160
+#: ../app/preview.py:171
 msgid "Links to"
 msgstr "链接到"
+
+#: ../app/preview.py:196 ../app/window.py:368
+#, python-format
+msgid "%d item"
+msgid_plural "%d items"
+msgstr[0] "%d 项"
+
+#: ../app/preview.py:199
+#, python-format
+msgid "%d folder"
+msgid_plural "%d folders"
+msgstr[0] "%d 个文件夹"
+
+#: ../app/preview.py:201
+#, python-format
+msgid "%d file"
+msgid_plural "%d files"
+msgstr[0] "%d 个文件"
+
+#. TRANSLATORS: separator between the parts of the status line
+#: ../app/preview.py:202 ../app/window.py:383
+msgid ", "
+msgstr "，"
+
+#: ../app/preview.py:208
+#, python-format
+msgid "and %d more…"
+msgstr "还有 %d 项…"
+
+#: ../app/preview.py:209
+msgid "Items"
+msgstr "项目"
 
 #: ../app/sidebar.py:11
 msgid "Places"
@@ -134,7 +182,7 @@ msgstr "云端"
 msgid "Bookmarks"
 msgstr "书签"
 
-#: ../app/sidebar.py:12 ../app/window.py:358
+#: ../app/sidebar.py:12 ../app/window.py:359
 msgid "Network"
 msgstr "网络"
 
@@ -148,7 +196,7 @@ msgstr "其他"
 msgid "%(used)s used of %(size)s (%(percent).0f%%)"
 msgstr "已用 %(used)s，共 %(size)s（%(percent).0f%%）"
 
-#: ../app/util.py:57 ../app/window.py:615
+#: ../app/util.py:57 ../app/window.py:654
 msgid "Could not open"
 msgstr "无法打开"
 
@@ -172,15 +220,15 @@ msgstr "上一级 (Alt+↑)"
 msgid "Path"
 msgstr "路径"
 
-#: ../app/window.py:73 ../app/window.py:511
+#: ../app/window.py:73 ../app/window.py:538 ../app/window.py:550
 msgid "Cut"
 msgstr "剪切"
 
-#: ../app/window.py:74 ../app/window.py:512
+#: ../app/window.py:74 ../app/window.py:539 ../app/window.py:551
 msgid "Copy"
 msgstr "复制"
 
-#: ../app/window.py:75 ../app/window.py:489
+#: ../app/window.py:75 ../app/window.py:513
 msgid "Paste"
 msgstr "粘贴"
 
@@ -192,12 +240,12 @@ msgstr "显示隐藏文件"
 msgid "Reload"
 msgstr "刷新"
 
-#: ../app/window.py:80 ../app/window.py:502 ../app/window.py:516
-#: ../app/window.py:528
+#: ../app/window.py:80 ../app/window.py:532 ../app/window.py:555
+#: ../app/window.py:567
 msgid "Open in Nemo"
 msgstr "在 Nemo 中打开"
 
-#: ../app/window.py:81 ../app/window.py:518 ../app/window.py:530
+#: ../app/window.py:81 ../app/window.py:557 ../app/window.py:569
 msgid "Open in Terminal"
 msgstr "在终端中打开"
 
@@ -205,98 +253,97 @@ msgstr "在终端中打开"
 msgid "New Folder (Ctrl+Shift+N)"
 msgstr "新建文件夹 (Ctrl+Shift+N)"
 
-#: ../app/window.py:274
+#: ../app/window.py:275
 msgid "Untitled Folder"
 msgstr "未命名文件夹"
 
-#: ../app/window.py:283
+#: ../app/window.py:284
 msgid "Could not create folder"
 msgstr "无法新建文件夹"
 
-#: ../app/window.py:358
+#: ../app/window.py:359
 msgid "Trash"
 msgstr "回收站"
 
-#: ../app/window.py:358
+#: ../app/window.py:359
 msgid "Recent"
 msgstr "最近使用"
 
-#: ../app/window.py:359
+#: ../app/window.py:360
 msgid "Computer"
 msgstr "计算机"
 
-#: ../app/window.py:367
+#: ../app/window.py:372
 #, python-format
-msgid "%d item"
-msgid_plural "%d items"
-msgstr[0] "%d 项"
+msgid "%d selected"
+msgid_plural "%d selected"
+msgstr[0] "已选 %d 项"
 
-#: ../app/window.py:374
+#: ../app/window.py:378
 #, python-format
 msgid "%s free"
 msgstr "可用 %s"
 
-#. TRANSLATORS: separator between the parts of the status line
-#: ../app/window.py:379
-msgid ", "
-msgstr "，"
-
-#: ../app/window.py:468
+#: ../app/window.py:485
 msgid "Could not open path"
 msgstr "无法打开路径"
 
-#: ../app/window.py:496 ../app/window.py:507
-msgid "Open With…"
-msgstr "打开方式…"
-
-#: ../app/window.py:499
+#: ../app/window.py:522 ../app/window.py:529
 msgid "Restore"
 msgstr "还原"
 
-#: ../app/window.py:500
+#: ../app/window.py:523 ../app/window.py:530
 msgid "Delete Permanently"
 msgstr "彻底删除"
 
-#: ../app/window.py:504
+#: ../app/window.py:526 ../app/window.py:546
+msgid "Open With…"
+msgstr "打开方式…"
+
+#: ../app/window.py:534
 msgid "Empty Trash"
 msgstr "清空回收站"
 
-#: ../app/window.py:509
-msgid "Rename"
-msgstr "重命名"
-
-#: ../app/window.py:520
-msgid "Show in Nemo"
-msgstr "在 Nemo 中显示"
-
-#: ../app/window.py:521 ../app/window.py:531
-msgid "Copy Path"
-msgstr "复制路径"
-
-#: ../app/window.py:523
+#: ../app/window.py:542 ../app/window.py:562
 msgid "Move to Trash"
 msgstr "移到回收站"
 
-#: ../app/window.py:524
+#: ../app/window.py:543 ../app/window.py:563
 msgid "Delete"
 msgstr "删除"
 
-#: ../app/window.py:576
+#: ../app/window.py:548
+msgid "Rename"
+msgstr "重命名"
+
+#: ../app/window.py:559
+msgid "Show in Nemo"
+msgstr "在 Nemo 中显示"
+
+#: ../app/window.py:560 ../app/window.py:570
+msgid "Copy Path"
+msgstr "复制路径"
+
+#: ../app/window.py:615
 msgid "Could not paste"
 msgstr "无法粘贴"
 
-#: ../app/window.py:594
+#: ../app/window.py:633
 msgid "Could not move"
 msgstr "无法移动"
 
-#: ../app/window.py:594
+#: ../app/window.py:633
 msgid "Could not copy"
 msgstr "无法复制"
 
-#: ../app/window.py:637
+#: ../app/window.py:676
 msgid "Could not open terminal"
 msgstr "无法打开终端"
 
-#: ../app/window.py:638
+#: ../app/window.py:677
 msgid "Only local folders can be opened in a terminal."
 msgstr "只有本地目录才能在终端中打开。"
+
+#, python-format
+#~ msgid "Could not restore to %s"
+#~ msgstr "无法还原到 %s"

@@ -2,7 +2,7 @@
 from gi.repository import GdkPixbuf, Gio, GLib, Gtk, Pango
 
 from . import (MAX_IMAGE_PREVIEW, MAX_PREVIEW_CONTENT, MAX_PREVIEW_MEDIA,
-               MAX_TEXT_PREVIEW, MIN_PREVIEW_MEDIA, _)
+               MAX_TEXT_PREVIEW, MIN_PREVIEW_MEDIA, _, ngettext)
 from .util import is_text_like, launch_default
 
 
@@ -11,7 +11,8 @@ class Preview(Gtk.Box):
 
     def __init__(self, width):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
-        self.gfile = None
+        self.gfile = None       # the previewed file, or None for a selection
+        self.gfiles = []        # what the Open button opens
         self._image_path = None
         # The pane takes whatever room is left in the strip. Its content is
         # `width` wide at least, grows with the pane up to MAX_PREVIEW_CONTENT,
@@ -40,7 +41,7 @@ class Preview(Gtk.Box):
         self.pack_start(self.details, False, False, 0)
 
         self.open_btn = Gtk.Button(label=_("Open"), halign=Gtk.Align.CENTER)
-        self.open_btn.connect("clicked", lambda *_args: launch_default(self.gfile, self))
+        self.open_btn.connect("clicked", self._on_open)
         self.pack_start(self.open_btn, False, False, 6)
 
         self.set_width(width)
@@ -140,17 +141,27 @@ class Preview(Gtk.Box):
         widget.show_all()
         self.media.pack_start(widget, True, True, 0)
 
+    def _on_open(self, *_args):
+        for gfile in self.gfiles:
+            launch_default(gfile, self)
+
     def set_file(self, gfile, info):
         self.gfile = gfile
+        self.gfiles = [gfile]
         self._image_path = None
-        for child in self.details.get_children():
-            self.details.remove(child)
 
         ctype = info.get_content_type() or ""
         size = info.get_size()
         self.name.set_text(info.get_display_name() or info.get_name())
-        rows = [(_("Kind"), Gio.content_type_get_description(ctype) or ctype),
-                (_("Size"), GLib.format_size(size))]
+        rows = [(_("Kind"), Gio.content_type_get_description(ctype) or ctype)]
+        path = gfile.get_path()
+        if ctype.startswith("image/") and path:
+            # Pixel size from the file header only; the image is not decoded.
+            _fmt, width, height = GdkPixbuf.Pixbuf.get_file_info(path)
+            if width > 0 and height > 0:
+                # TRANSLATORS: image size in pixels, e.g. "1920 × 1080"
+                rows.append((_("Dimensions"), _("%d × %d") % (width, height)))
+        rows.append((_("Size"), GLib.format_size(size)))
         mtime = info.get_modification_date_time()
         if mtime is not None:
             rows.append((_("Modified"), mtime.to_local().format("%Y-%m-%d %H:%M")))
@@ -158,21 +169,9 @@ class Preview(Gtk.Box):
                   if info.has_attribute("standard::symlink-target") else None)
         if target:
             rows.append((_("Links to"), target))
-        for i, (k, v) in enumerate(rows):
-            kl = Gtk.Label(label=k, xalign=1.0)
-            kl.get_style_context().add_class("dim-label")
-            vl = Gtk.Label(label=v, xalign=0.0, wrap=True, selectable=True,
-                           max_width_chars=28)
-            self.details.attach(kl, 0, i, 1, 1)
-            self.details.attach(vl, 1, i, 1, 1)
-        # The name and details are in place (and shown, or they would report
-        # no size): now the media box can be sized for the room they leave,
-        # and a picture scaled to it in one go.
-        self.show_all()
-        self._refit(defer=False)
+        self._set_details(rows)
 
         widget = None
-        path = gfile.get_path()
         if ctype.startswith("image/") and path and size <= MAX_IMAGE_PREVIEW:
             widget = self._image_widget(path)
             if widget is not None:
@@ -183,6 +182,58 @@ class Preview(Gtk.Box):
             widget = Gtk.Image.new_from_gicon(info.get_icon(), Gtk.IconSize.DIALOG)
             widget.set_pixel_size(96)
         self._show_media(widget)
+        self.open_btn.set_sensitive(True)
+
+    def set_files(self, gfiles, infos):
+        """Summary of several selected items: their icons, how many folders
+        and files, the total size and the first few names."""
+        self.gfile = None
+        self._image_path = None
+        is_dir = [i.get_file_type() == Gio.FileType.DIRECTORY for i in infos]
+        self.gfiles = [g for g, d in zip(gfiles, is_dir) if not d]
+        n, dirs = len(gfiles), sum(is_dir)
+        files = n - dirs
+        self.name.set_text(ngettext("%d item", "%d items", n) % n)
+        kinds = []
+        if dirs:
+            kinds.append(ngettext("%d folder", "%d folders", dirs) % dirs)
+        if files:
+            kinds.append(ngettext("%d file", "%d files", files) % files)
+        rows = [(_("Kind"), _(", ").join(kinds))]
+        if files:
+            total = sum(i.get_size() for i, d in zip(infos, is_dir) if not d)
+            rows.append((_("Size"), GLib.format_size(total)))
+        names = [i.get_display_name() or i.get_name() for i in infos[:8]]
+        if n > len(names):
+            names.append(_("and %d more…") % (n - len(names)))
+        rows.append((_("Items"), "\n".join(names)))
+        self._set_details(rows)
+
+        grid = Gtk.Grid(row_spacing=6, column_spacing=6,
+                        halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        per_row = 3 if n > 4 else 2
+        for k, info in enumerate(infos[:9]):
+            img = Gtk.Image.new_from_gicon(info.get_icon(), Gtk.IconSize.DIALOG)
+            img.set_pixel_size(48)
+            grid.attach(img, k % per_row, k // per_row, 1, 1)
+        self._show_media(grid)
+        self.open_btn.set_sensitive(bool(self.gfiles))
+
+    def _set_details(self, rows):
+        for child in self.details.get_children():
+            self.details.remove(child)
+        for i, (k, v) in enumerate(rows):
+            kl = Gtk.Label(label=k, xalign=1.0, yalign=0.0)
+            kl.get_style_context().add_class("dim-label")
+            vl = Gtk.Label(label=v, xalign=0.0, wrap=True, selectable=True,
+                           max_width_chars=28)
+            self.details.attach(kl, 0, i, 1, 1)
+            self.details.attach(vl, 1, i, 1, 1)
+        # The name and details are in place (and shown, or they would report
+        # no size): now the media box can be sized for the room they leave,
+        # and a picture scaled to it in one go.
+        self.show_all()
+        self._refit(defer=False)
 
     def _text_preview(self, gfile):
         try:

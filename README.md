@@ -2,8 +2,8 @@
 
 A Finder-style Miller-column file browser for Linux, written in Python with
 GTK 3 and made for Linux Mint Cinnamon. It is for **browsing, previewing and
-opening files, plus renaming, copy / cut / paste, drag and drop and the
-trash**; anything
+opening files, plus multi-selection, renaming, copy / cut / paste, drag and
+drop and the trash**; anything
 more involved is left to Nemo. See [doc/manual.md](doc/manual.md) for how to use it (in Chinese).
 
 ## Build and run
