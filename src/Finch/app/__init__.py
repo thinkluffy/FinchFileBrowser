@@ -9,6 +9,7 @@ Package layout:
     column       one directory listing (ListView / Column)
     clipboard    copy / cut / paste through the system clipboard
     preview      the right-most file preview pane
+    thumbs       preview caches: in-process LRU and the freedesktop thumbnail cache
     sidebar      GtkPlacesSidebar with section titles and device usage bars
     window       the main window: tool bar, navigation, context menu
     application  Gtk.Application, CSS and accelerators; `main()` lives here

@@ -153,7 +153,8 @@ class PlacesSidebar(Gtk.PlacesSidebar):
 
     def _refresh_usage_bar(self, bar):
         Gio.File.new_for_uri(bar._uri).query_filesystem_info_async(
-            "filesystem::size,filesystem::used", GLib.PRIORITY_LOW, None,
+            "filesystem::size,filesystem::used,filesystem::free",
+            GLib.PRIORITY_LOW, None,
             self._on_usage_info, bar)
 
     @staticmethod
@@ -166,7 +167,14 @@ class PlacesSidebar(Gtk.PlacesSidebar):
         used = info.get_attribute_uint64("filesystem::used")
         if not size:
             return
-        frac = used / size
+        # Same convention as df(1): the space reserved for root (ext4 keeps
+        # 5% by default) is neither used nor available, so the bar reaches
+        # 100% exactly when a normal user can no longer write to the volume.
+        if info.has_attribute("filesystem::free"):
+            avail = info.get_attribute_uint64("filesystem::free")
+            frac = used / (used + avail) if used + avail else 0.0
+        else:
+            frac = used / size
         bar.set_value(frac)
         if frac >= 0.9:
             bar.get_style_context().add_class("warn")

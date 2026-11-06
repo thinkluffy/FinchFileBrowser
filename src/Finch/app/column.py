@@ -505,7 +505,7 @@ class Column(Gtk.Box):
     def _on_monitor_changed(self, monitor, f, other, event):
         if event in (Gio.FileMonitorEvent.CREATED, Gio.FileMonitorEvent.DELETED,
                      Gio.FileMonitorEvent.MOVED_IN, Gio.FileMonitorEvent.MOVED_OUT,
-                     Gio.FileMonitorEvent.RENAMED,
+                     Gio.FileMonitorEvent.RENAMED, Gio.FileMonitorEvent.ATTRIBUTE_CHANGED,
                      Gio.FileMonitorEvent.CHANGES_DONE_HINT):
             if self._reload_id:
                 GLib.source_remove(self._reload_id)
