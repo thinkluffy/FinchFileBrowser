@@ -37,6 +37,9 @@ class FinchApp(Gtk.Application):
         self.set_accels_for_action("win.focus-path", ["<Primary>l"])
         self.set_accels_for_action("win.show-hidden", ["<Primary>h"])
         self.set_accels_for_action("win.open-terminal", ["<Primary>t"])
+        self.set_accels_for_action("win.cut", ["<Primary>x"])
+        self.set_accels_for_action("win.copy", ["<Primary>c"])
+        self.set_accels_for_action("win.paste", ["<Primary>v"])
 
     def do_shutdown(self):
         # Ctrl+Q goes through app.quit(), which never emits delete-event

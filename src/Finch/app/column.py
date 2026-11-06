@@ -6,6 +6,28 @@ from gi.repository import Gdk, Gio, GLib, GObject, Gtk, Pango
 from . import ATTRS, C_FILE, C_ICON, C_INFO, C_ISDIR, C_NAME, MIN_COL_WIDTH, _
 from .util import confirm, delete_recursive, natural_key, show_error
 
+URI_LIST = "text/uri-list"
+_DND_TARGETS = [Gtk.TargetEntry.new(URI_LIST, 0, 0)]
+# Files being dragged out of one of our own columns (empty for drags that
+# come from other programs); lets a column refuse pointless drops.
+_dragging = []
+
+
+def drop_action(context, widget):
+    """The action a drop of `context` should take: move, or copy with Ctrl
+    held (or when the source does not allow moving). GTK itself suggests
+    copying whenever no modifier is down, so the destination decides."""
+    actions = context.get_actions()
+    state = 0
+    device, window = context.get_device(), widget.get_window()
+    if device is not None and window is not None:
+        state = window.get_device_position(device)[3]
+    if state & Gdk.ModifierType.CONTROL_MASK and actions & Gdk.DragAction.COPY:
+        return Gdk.DragAction.COPY
+    if actions & Gdk.DragAction.MOVE:
+        return Gdk.DragAction.MOVE
+    return actions & Gdk.DragAction.COPY
+
 
 class ListView(Gtk.TreeView):
     """TreeView that does not select the first row when it merely gains focus.
@@ -30,6 +52,8 @@ class Column(Gtk.Box):
         "key-nav": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
         "context-menu": (GObject.SignalFlags.RUN_FIRST, None, (object, object, object)),
         "loaded": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        # (files, directory, move?) dropped onto this column
+        "files-dropped": (GObject.SignalFlags.RUN_FIRST, None, (object, object, bool)),
     }
 
     def __init__(self, gfile, width, show_hidden):
@@ -71,11 +95,25 @@ class Column(Gtk.Box):
         self.view.connect("row-activated", self._on_row_activated)
         self.view.connect("key-press-event", self._on_key_press)
         self.view.connect("button-press-event", self._on_button_press)
+        # Drag source: the selected row leaves as a URI list, to another
+        # column, the sidebar or another program.
         self.view.enable_model_drag_source(
-            Gdk.ModifierType.BUTTON1_MASK,
-            [Gtk.TargetEntry.new("text/uri-list", 0, 0)],
-            Gdk.DragAction.COPY)
+            Gdk.ModifierType.BUTTON1_MASK, _DND_TARGETS,
+            Gdk.DragAction.MOVE | Gdk.DragAction.COPY)
+        self.view.connect("drag-begin", self._on_drag_begin)
+        self.view.connect("drag-end", self._on_drag_end)
         self.view.connect("drag-data-get", self._on_drag_data_get)
+        self.view.connect("drag-data-delete", self._on_drag_data_delete)
+        # Drop target: files land in the directory row under the pointer, or
+        # in this column's directory. GtkTreeView's own model-row DnD is not
+        # used (it would insert and delete rows itself); only the plain
+        # widget drop signals are, and the view's handlers are kept out.
+        self.view.drag_dest_set(0, _DND_TARGETS,
+                                Gdk.DragAction.MOVE | Gdk.DragAction.COPY)
+        self.view.connect("drag-motion", self._on_drag_motion)
+        self.view.connect("drag-leave", self._on_drag_leave)
+        self.view.connect("drag-drop", self._on_drag_drop)
+        self.view.connect("drag-data-received", self._on_drag_data_received)
         # Finder style: only the focused column shows its selection in the
         # accent colour; the other columns fall back to a neutral grey.
         self.view.get_style_context().add_class("inactive")
@@ -146,6 +184,11 @@ class Column(Gtk.Box):
         current, _info = self.selected()
         self._enumerate(current, emit=False)
         return False
+
+    def reload_and_select(self, gfile):
+        """Reload with `gfile` selected and opened to the right (as after a
+        rename): used for an item that was just pasted here."""
+        self._enumerate(gfile, emit=True)
 
     def select_and_rename(self, gfile):
         """Reload with `gfile` selected, then open the inline rename editor."""
@@ -226,8 +269,11 @@ class Column(Gtk.Box):
         if found is not None:
             if emit:
                 self.emit("item-selected", *found)
-        elif select is not None and not emit:
-            # the previously selected entry disappeared: drop columns to the right
+        elif emit or select is not None:
+            # Nothing is selected now (the entry to select is gone, or there
+            # was none to begin with): drop the columns and preview to the
+            # right. On a silent reload with nothing selected before there is
+            # nothing to the right, so there is nothing to tell.
             self.emit("item-selected", None, None)
         if getattr(self, "_focus_after_load", False) and rows:
             self._focus_after_load = False
@@ -489,10 +535,93 @@ class Column(Gtk.Box):
             self.emit("context-menu", row[C_FILE], row[C_INFO], event)
         return True
 
+    # -- drag and drop -------------------------------------------------------
+    def _on_drag_begin(self, view, ctx):
+        gfile, _info = self.selected()
+        _dragging[:] = [gfile] if gfile is not None else []
+
+    def _on_drag_end(self, view, ctx):
+        _dragging.clear()
+
     def _on_drag_data_get(self, view, ctx, data, info, time):
         gfile, _info = self.selected()
         if gfile is not None:
             data.set_uris([gfile.get_uri()])
+
+    def _on_drag_data_delete(self, view, ctx):
+        # A move was accepted. The destination (ours or another program's)
+        # has moved the file itself; GtkTreeView would now delete the row,
+        # but the directory monitor keeps the listing right.
+        view.stop_emission_by_name("drag-data-delete")
+
+    def accepts_drops(self):
+        """Can files be dropped into this column's directory at all? The
+        trash root takes them (into the trash); folders inside the trash and
+        the virtual locations do not."""
+        if self.in_trash():
+            return self.is_trash_root()
+        return self.gfile.get_uri_scheme() not in ("recent", "computer", "network")
+
+    def drop_target(self, x, y):
+        """Where a drop at widget position (x, y) would go: (directory, row
+        path of the folder it lands in or None for this column's directory),
+        or (None, None) when a drop here makes no sense."""
+        if not self.accepts_drops():
+            return None, None
+        dest, path = self.gfile, None
+        bx, by = self.view.convert_widget_to_bin_window_coords(int(x), int(y))
+        hit = self.view.get_path_at_pos(bx, by)
+        if hit is not None and not self.in_trash():
+            row = self.store[hit[0]]
+            if row[C_ISDIR]:
+                dest, path = row[C_FILE], hit[0]
+        for src in _dragging:              # one of our own: refuse no-ops
+            if dest.equal(src) or dest.has_prefix(src):
+                return None, None          # into itself
+            parent = src.get_parent()
+            if parent is not None and parent.equal(dest) and not self.in_trash():
+                return None, None          # where it already is
+        return dest, path
+
+    def _on_drag_motion(self, view, ctx, x, y, time):
+        dest, path = self.drop_target(x, y)
+        if dest is None:
+            Gdk.drag_status(ctx, 0, time)
+            self._on_drag_leave(view, ctx, time)
+            return True
+        Gdk.drag_status(ctx, drop_action(ctx, view), time)
+        view.set_drag_dest_row(path, Gtk.TreeViewDropPosition.INTO_OR_BEFORE)
+        ctx_class = view.get_style_context()
+        if path is None:
+            ctx_class.add_class("drop-target")
+        else:
+            ctx_class.remove_class("drop-target")
+        return True
+
+    def _on_drag_leave(self, view, ctx, time):
+        view.set_drag_dest_row(None, Gtk.TreeViewDropPosition.INTO_OR_BEFORE)
+        view.get_style_context().remove_class("drop-target")
+
+    def _on_drag_drop(self, view, ctx, x, y, time):
+        dest, _path = self.drop_target(x, y)
+        if dest is None:
+            return False
+        self._drop_dest = dest
+        view.drag_get_data(ctx, Gdk.Atom.intern(URI_LIST, False), time)
+        return True
+
+    def _on_drag_data_received(self, view, ctx, x, y, data, info, time):
+        view.stop_emission_by_name("drag-data-received")
+        dest = getattr(self, "_drop_dest", None)
+        files = [Gio.File.new_for_uri(u) for u in (data.get_uris() or [])]
+        ok = dest is not None and bool(files)
+        move = ctx.get_selected_action() == Gdk.DragAction.MOVE
+        # Report success before doing the work: the move is ours to make
+        # (the source only drops its row on "delete", see above).
+        Gtk.drag_finish(ctx, ok, ok and move, time)
+        self._on_drag_leave(view, ctx, time)
+        if ok:
+            self.emit("files-dropped", files, dest, move)
 
     def _on_handle_realize(self, widget):
         cursor = Gdk.Cursor.new_from_name(widget.get_display(), "col-resize")

@@ -4,11 +4,27 @@ import subprocess
 
 from gi.repository import Gdk, Gio, GLib, Gtk
 
-from . import DEFAULT_COL_WIDTH, PREVIEW_EXTRA, _, ngettext
-from .column import Column
+from . import DEFAULT_COL_WIDTH, PREVIEW_EXTRA, _, clipboard, ngettext
+from .column import Column, drop_action
 from .preview import Preview
 from .sidebar import PlacesSidebar
 from .util import launch_default, save_state, show_error
+
+MAX_HISTORY = 100
+
+
+def _child_towards(parent, target):
+    """The child of `parent` that lies on the way to `target` (`target`
+    itself when it is a direct child), or None if `target` is not below it."""
+    node = target
+    while node is not None:
+        above = node.get_parent()
+        if above is None:
+            return None
+        if above.equal(parent):
+            return node
+        node = above
+    return None
 
 
 class FinchWindow(Gtk.ApplicationWindow):
@@ -53,10 +69,17 @@ class FinchWindow(Gtk.ApplicationWindow):
         toolbar.set_custom_title(self.path_entry)
 
         menu = Gio.Menu()
-        menu.append(_("Show Hidden Files"), "win.show-hidden")
-        menu.append(_("Reload"), "win.reload")
-        menu.append(_("Open in Nemo"), "win.open-nemo")
-        menu.append(_("Open in Terminal"), "win.open-terminal")
+        edit = Gio.Menu()
+        edit.append(_("Cut"), "win.cut")
+        edit.append(_("Copy"), "win.copy")
+        edit.append(_("Paste"), "win.paste")
+        menu.append_section(None, edit)
+        view = Gio.Menu()
+        view.append(_("Show Hidden Files"), "win.show-hidden")
+        view.append(_("Reload"), "win.reload")
+        view.append(_("Open in Nemo"), "win.open-nemo")
+        view.append(_("Open in Terminal"), "win.open-terminal")
+        menu.append_section(None, view)
         new_folder = Gtk.Button.new_from_icon_name("folder-new-symbolic", Gtk.IconSize.BUTTON)
         new_folder.set_tooltip_text(_("New Folder (Ctrl+Shift+N)"))
         new_folder.set_action_name("win.new-folder")
@@ -77,7 +100,12 @@ class FinchWindow(Gtk.ApplicationWindow):
 
         # actions
         self._up_action = self._add_action("up", self.go_up)
+        # Finder-style history of *locations*: (root, deepest item shown).
+        # Changing the root and selecting a folder in a column both add an
+        # entry; back / forward restore the root and re-open the columns
+        # down to the item. `_target` is the item still being re-opened.
         self._history, self._hist_pos = [], -1
+        self._target = None
         self._back_action = self._add_action("back", self.go_back)
         self._forward_action = self._add_action("forward", self.go_forward)
         self._add_action("reload", self.reload_all)
@@ -86,6 +114,12 @@ class FinchWindow(Gtk.ApplicationWindow):
         self._terminal_action = self._add_action(
             "open-terminal", lambda *_args: self.open_terminal(self.current_dir()))
         self._new_folder_action = self._add_action("new-folder", self.new_folder)
+        self._add_action("cut", lambda: self.copy_selection(cut=True))
+        self._add_action("copy", self.copy_selection)
+        self._paste_action = self._add_action("paste", self.paste)
+        # Paste is offered whenever the clipboard holds files (from us or Nemo).
+        Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).connect(
+            "owner-change", lambda *_args: self._update_nav_actions())
         self._update_nav_actions()
         hidden = Gio.SimpleAction.new_stateful(
             "show-hidden", None, GLib.Variant.new_boolean(self.show_hidden))
@@ -97,6 +131,12 @@ class FinchWindow(Gtk.ApplicationWindow):
         self.sidebar.connect("open-location", lambda sb, loc, flags: self.set_root(loc))
         self.sidebar.connect("show-error-message",
                              lambda sb, p, s: show_error(self, p, s))
+        # Files dropped on a place in the sidebar go there too.
+        self.sidebar.connect("drag-action-requested",
+                             lambda sb, ctx, dest, files: drop_action(ctx, sb))
+        self.sidebar.connect("drag-perform-drop",
+                             lambda sb, dest, files, action:
+                             self.drop_files(list(files), dest, action == Gdk.DragAction.MOVE))
 
         self.colbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.hsw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
@@ -132,27 +172,53 @@ class FinchWindow(Gtk.ApplicationWindow):
         self.add_action(act)
         return act
 
-    def current_dir(self):
-        """Deepest directory column that has keyboard focus, else the last one."""
+    def _focused_column(self):
+        """The column that has keyboard focus, else the last one (or None)."""
         for col in reversed(self.columns):
-            if col.view.has_focus():
-                return col.gfile
-        return self.columns[-1].gfile if self.columns else None
+            # is_focus, not has_focus: the latter is False for every widget
+            # while the window itself is not the active one.
+            if col.view.is_focus():
+                return col
+        return self.columns[-1] if self.columns else None
+
+    def current_dir(self):
+        """The directory the window is "in", as the title and path box show
+        it: the folder selected in the focused column if one is, else that
+        column's own folder. Paste, New Folder and Open in Terminal use it."""
+        col = self._focused_column()
+        if col is None:
+            return None
+        gfile, info = col.selected()
+        if info is not None and info.get_file_type() == Gio.FileType.DIRECTORY:
+            return gfile
+        return col.gfile
+
+    def _column_for(self, gfile):
+        return next((c for c in self.columns if c.gfile.equal(gfile)), None)
+
+    def do_key_press_event(self, event):
+        # GtkWindow runs accelerators before the focused widget sees a key, so
+        # Ctrl+C/X/V would never reach the path box or the inline rename
+        # entry. Let a text entry take the key first; what it declines falls
+        # through to the accelerators as usual.
+        focus = self.get_focus()
+        if isinstance(focus, Gtk.Entry) and focus.event(event):
+            return True
+        return Gtk.ApplicationWindow.do_key_press_event(self, event)
 
     # -- navigation ----------------------------------------------------------
     def set_root(self, gfile, select=None, focus=False, record=True):
+        """Show `gfile` as the left-most column. `select` may be any item
+        below it: the columns are re-opened level by level down to it."""
         if record:
-            # Drop any forward entries, then append (skipping duplicates).
-            del self._history[self._hist_pos + 1:]
-            if not self._history or not self._history[-1].equal(gfile):
-                self._history.append(gfile)
-            self._hist_pos = len(self._history) - 1
-            self._update_nav_actions()
+            self._record(gfile, select or gfile)
+        self._target = select
         for col in self.columns:
             col.destroy()
         self.columns = []
         self._remove_preview()
-        self.add_column(gfile, select=select, focus=focus)
+        self.add_column(gfile, select=_child_towards(gfile, select) if select else None,
+                        focus=focus)
         self._update_path(gfile)
         self._update_nav_actions()
         self.sidebar.sync_location(gfile)
@@ -165,6 +231,7 @@ class FinchWindow(Gtk.ApplicationWindow):
         col.connect("key-nav", self._on_key_nav)
         col.connect("context-menu", self._on_context_menu)
         col.connect("loaded", lambda *_args: self._update_status())
+        col.connect("files-dropped", lambda c, files, dest, move: self.drop_files(files, dest, move))
         self.colbox.pack_start(col, False, False, 0)
         col.show_all()
         self.columns.append(col)
@@ -192,47 +259,58 @@ class FinchWindow(Gtk.ApplicationWindow):
     def _on_strip_scrolled(self, adj):
         self._at_end = adj.get_value() + adj.get_page_size() >= adj.get_upper() - 1
 
-    def _fit_preview(self):
+    def _fit_preview(self, defer=True):
         """Tell the preview how much of the strip the columns leave to it."""
         if self.preview is None:
             return
         used = sum(col.get_allocated_width() for col in self.columns)
-        self.preview.set_available(self.hsw.get_allocated_width() - used)
+        self.preview.set_available(self.hsw.get_allocated_width() - used, defer)
 
     def new_folder(self):
-        """Create an untitled folder in the focused column and rename it."""
-        col = None
-        for c in reversed(self.columns):
-            if c.view.has_focus():
-                col = c
-                break
-        col = col or (self.columns[-1] if self.columns else None)
-        if col is None or col.in_trash():
+        """Create an untitled folder in the current directory and rename it."""
+        dest = self.current_dir()
+        if dest is None or dest.get_uri_scheme() == "trash":
             return
         base = _("Untitled Folder")
-        child = col.gfile.get_child(base)
+        child = dest.get_child(base)
         n = 2
         while child.query_exists(None):
-            child = col.gfile.get_child(f"{base} {n}")
+            child = dest.get_child(f"{base} {n}")
             n += 1
         try:
             child.make_directory(None)
         except GLib.Error as err:
             show_error(self, _("Could not create folder"), err.message)
             return
-        col.select_and_rename(child)
+        col = self._column_for(dest)
+        if col is not None:
+            col.select_and_rename(child)
+
+    def _record(self, root, leaf):
+        """Append the location (root, leaf) to the history, dropping any
+        forward entries; a repeat of the current location is not added."""
+        del self._history[self._hist_pos + 1:]
+        if self._history:
+            last_root, last_leaf = self._history[-1]
+            if last_root.equal(root) and last_leaf.equal(leaf):
+                return
+        self._history.append((root, leaf))
+        del self._history[:-MAX_HISTORY]
+        self._hist_pos = len(self._history) - 1
+        self._update_nav_actions()
+
+    def _restore(self, pos):
+        self._hist_pos = pos
+        root, leaf = self._history[pos]
+        self.set_root(root, select=None if leaf.equal(root) else leaf, record=False)
 
     def go_back(self):
         if self._hist_pos > 0:
-            self._hist_pos -= 1
-            self._update_nav_actions()
-            self.set_root(self._history[self._hist_pos], record=False)
+            self._restore(self._hist_pos - 1)
 
     def go_forward(self):
         if self._hist_pos + 1 < len(self._history):
-            self._hist_pos += 1
-            self._update_nav_actions()
-            self.set_root(self._history[self._hist_pos], record=False)
+            self._restore(self._hist_pos + 1)
 
     def _update_nav_actions(self):
         self._back_action.set_enabled(self._hist_pos > 0)
@@ -240,8 +318,10 @@ class FinchWindow(Gtk.ApplicationWindow):
         root = self.columns[0].gfile if self.columns else None
         self._up_action.set_enabled(root is not None and root.get_parent() is not None)
         self._terminal_action.set_enabled(root is not None and root.get_path() is not None)
-        self._new_folder_action.set_enabled(
-            root is not None and root.get_uri_scheme() not in ("trash", "recent", "network", "computer"))
+        writable = root is not None and root.get_uri_scheme() not in (
+            "trash", "recent", "network", "computer")
+        self._new_folder_action.set_enabled(writable)
+        self._paste_action.set_enabled(writable and clipboard.has_files())
 
     def go_up(self):
         if not self.columns:
@@ -281,12 +361,7 @@ class FinchWindow(Gtk.ApplicationWindow):
         self.set_title(name)
 
     def _update_status(self):
-        col = None
-        for c in reversed(self.columns):
-            if c.view.has_focus():
-                col = c
-                break
-        col = col or (self.columns[-1] if self.columns else None)
+        col = self._focused_column()
         if col is None:
             return
         parts = [ngettext("%d item", "%d items", col.item_count) % col.item_count]
@@ -306,18 +381,41 @@ class FinchWindow(Gtk.ApplicationWindow):
     # -- signal handlers -----------------------------------------------------
     def _on_item_selected(self, col, gfile, info):
         self.truncate_after(col)
+        # Are we still re-opening columns towards a history entry?
+        target, nxt = self._target, None
+        if target is not None:
+            if gfile is not None and gfile.equal(target):
+                self._target = None             # arrived
+            elif gfile is not None:
+                nxt = _child_towards(gfile, target)
+                if nxt is None:
+                    self._target = None         # the user went elsewhere
+                    target = None
+            else:
+                self._target = target = None
         if gfile is None:
             self._update_path(col.gfile)
         elif info.get_file_type() == Gio.FileType.DIRECTORY:
-            self.add_column(gfile)
+            if target is None:
+                self._record(self.columns[0].gfile, gfile)
+            self.add_column(gfile, select=nxt)
             self._update_path(gfile)
         else:
+            if target is None and self._history:
+                # Remember the file with the current location, so that
+                # coming back here shows its preview again.
+                self._history[self._hist_pos] = (self.columns[0].gfile, gfile)
             self.preview = Preview(self.col_width + PREVIEW_EXTRA)
-            self.preview.set_file(gfile, info)
             # Takes whatever is left of the strip; its content stays centred.
+            # It goes in before it is filled and sized, so that its labels
+            # already have their styles and the room it is about to get is
+            # known: then the picture comes up at its final size instead of
+            # jumping to it after the first layout.
             self.colbox.pack_start(self.preview, True, True, 0)
+            self.preview.set_height(self.colbox.get_allocated_height())
+            self._fit_preview(defer=False)
+            self.preview.set_file(gfile, info)
             self.preview.show_all()
-            self._fit_preview()
             self._scroll_to_end_when_allocated(self.preview)
             self._update_path(gfile)
         self._update_status()
@@ -385,6 +483,11 @@ class FinchWindow(Gtk.ApplicationWindow):
             mi = Gtk.MenuItem(label=label)
             mi.connect("activate", lambda *_args: cb())
             menu.append(mi)
+            return mi
+
+        def paste(dest):
+            mi = item(_("Paste"), lambda: self.paste(dest))
+            mi.set_sensitive(clipboard.has_files())
 
         if col.in_trash():
             # Trash: items can only be restored or destroyed.
@@ -405,6 +508,10 @@ class FinchWindow(Gtk.ApplicationWindow):
             menu.append(Gtk.SeparatorMenuItem())
             item(_("Rename"), col.start_rename)
             menu.append(Gtk.SeparatorMenuItem())
+            item(_("Cut"), lambda: self.copy_to_clipboard(gfile, cut=True))
+            item(_("Copy"), lambda: self.copy_to_clipboard(gfile))
+            paste(gfile if is_dir else col.gfile)
+            menu.append(Gtk.SeparatorMenuItem())
             if is_dir:
                 item(_("Open in Nemo"), lambda: self.open_in_nemo(gfile))
                 if gfile.get_path():
@@ -416,6 +523,8 @@ class FinchWindow(Gtk.ApplicationWindow):
             item(_("Move to Trash"), lambda: col.trash_item(gfile))
             item(_("Delete"), lambda: col.delete_item(gfile))
         else:
+            paste(col.gfile)
+            menu.append(Gtk.SeparatorMenuItem())
             item(_("Open in Nemo"), lambda: self.open_in_nemo(col.gfile))
             if col.gfile.get_path():
                 item(_("Open in Terminal"), lambda: self.open_terminal(col.gfile))
@@ -437,6 +546,61 @@ class FinchWindow(Gtk.ApplicationWindow):
             "last_root": self.columns[0].gfile.get_uri() if self.columns else None,
         })
         save_state(self.state)
+
+    # -- clipboard -----------------------------------------------------------
+    def copy_to_clipboard(self, gfile, cut=False):
+        clipboard.set_files([gfile], cut=cut)
+
+    def copy_selection(self, cut=False):
+        col = self._focused_column()
+        gfile = col.selected()[0] if col is not None else None
+        if gfile is not None:
+            self.copy_to_clipboard(gfile, cut=cut)
+
+    def paste(self, dest=None):
+        """Paste the clipboard's files into the directory `dest` (default:
+        the current directory, see current_dir)."""
+        dest = dest or self.current_dir()
+        if dest is None or dest.get_uri_scheme() == "trash":
+            return
+        op, files = clipboard.get_files()
+        if not files:
+            return
+        move = op == "cut"
+        clipboard.transfer(files, dest, move,
+                           lambda created, errors: self._on_pasted(dest, created, errors, move))
+
+    def _on_pasted(self, dest, created, errors, move):
+        if move:
+            clipboard.clear()           # a cut is pasted once
+        self._on_transferred(dest, created, errors, _("Could not paste"))
+
+    def drop_files(self, files, dest, move):
+        """Files dropped onto the directory `dest` (a column, a folder row
+        or a sidebar place): move or copy them there; dropped on the trash
+        they are trashed."""
+        if dest.get_uri_scheme() == "trash":
+            errors = []
+            for gfile in files:
+                if gfile.get_uri_scheme() == "trash":
+                    continue
+                try:
+                    gfile.trash(None)
+                except GLib.Error as err:
+                    errors.append("%s: %s" % (gfile.get_basename(), err.message))
+            if errors:
+                show_error(self, _("Could not move to trash"), "\n".join(errors[:10]))
+            return
+        title = _("Could not move") if move else _("Could not copy")
+        clipboard.transfer(files, dest, move,
+                           lambda created, errors: self._on_transferred(dest, created, errors, title))
+
+    def _on_transferred(self, dest, created, errors, error_title):
+        if errors:
+            show_error(self, error_title, "\n".join(errors[:10]))
+        col = self._column_for(dest) if created else None
+        if col is not None:
+            col.reload_and_select(created[0])
 
     # -- external apps -------------------------------------------------------
     def open_with(self, gfile):

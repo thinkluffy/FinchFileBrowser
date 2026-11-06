@@ -51,6 +51,9 @@ levelbar.usage-bar trough { min-height: 2px; padding: 0; border: none;
 levelbar.usage-bar block { min-height: 2px; border: none;
                            background-color: alpha(@theme_fg_color, 0.55); }
 levelbar.usage-bar.warn block { background-color: #ED5F5D; }
+/* A column that files are about to be dropped into (its directory, not
+   one of its rows: those get GtkTreeView's own drop highlight). */
+treeview.view.drop-target { background-color: alpha(@theme_selected_bg_color, 0.12); }
 /* Selection in a column that does not have keyboard focus. */
 treeview.view.inactive:selected,
 treeview.view.inactive:selected:focus {

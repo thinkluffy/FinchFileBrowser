@@ -1,7 +1,8 @@
 """The right-most pane: image / text preview and details of the selected file."""
 from gi.repository import GdkPixbuf, Gio, GLib, Gtk, Pango
 
-from . import MAX_IMAGE_PREVIEW, MAX_PREVIEW_CONTENT, MAX_TEXT_PREVIEW, _
+from . import (MAX_IMAGE_PREVIEW, MAX_PREVIEW_CONTENT, MAX_PREVIEW_MEDIA,
+               MAX_TEXT_PREVIEW, MIN_PREVIEW_MEDIA, _)
 from .util import is_text_like, launch_default
 
 
@@ -14,17 +15,19 @@ class Preview(Gtk.Box):
         self._image_path = None
         # The pane takes whatever room is left in the strip. Its content is
         # `width` wide at least, grows with the pane up to MAX_PREVIEW_CONTENT,
-        # and sits centred once the pane is wider than that.
+        # and sits centred once the pane is wider than that. Likewise the
+        # media box (picture / text) takes what is left of the pane's height
+        # once the name, details and button have theirs, between
+        # MIN_PREVIEW_MEDIA and MAX_PREVIEW_MEDIA.
         self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
                                margin=12, halign=Gtk.Align.CENTER)
         super().pack_start(self.content, True, True, 0)
         self._content_width = 0
-        self._image_box = 0
-        self.set_width(width)
-        self.connect("size-allocate", self._on_size_allocate)
+        self._media_height = MIN_PREVIEW_MEDIA
+        self._height = 0        # the pane's height, told or allocated
 
         self.media = Gtk.Box(valign=Gtk.Align.CENTER)
-        self.media.set_size_request(-1, 160)
+        self.media.set_size_request(-1, MIN_PREVIEW_MEDIA)
         self.pack_start(self.media, False, False, 0)
 
         self.name = Gtk.Label(wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR,
@@ -40,8 +43,32 @@ class Preview(Gtk.Box):
         self.open_btn.connect("clicked", lambda *_args: launch_default(self.gfile, self))
         self.pack_start(self.open_btn, False, False, 6)
 
+        self.set_width(width)
+        self.connect("size-allocate", self._on_size_allocate)
+
     def pack_start(self, child, expand, fill, padding):
         self.content.pack_start(child, expand, fill, padding)
+
+    # The pane's own height request must not follow the media box, or the
+    # window could never shrink again once the box has grown into it: report
+    # the height of a pane with the box at its minimum instead.
+    def do_get_preferred_height(self):
+        height = self._others_height(self._content_width) + MIN_PREVIEW_MEDIA
+        return height, height
+
+    def do_get_preferred_height_for_width(self, _width):
+        return self.do_get_preferred_height()
+
+    def _others_height(self, width):
+        """Height of everything in the content but the media box, laid out
+        `width` wide: name, details, button, spacing and margins."""
+        box = self.content
+        total = box.get_margin_top() + box.get_margin_bottom()
+        others = [c for c in box.get_children() if c is not self.media]
+        for child in others:
+            total += child.get_preferred_height_for_width(max(width, 1))[1]
+            total += 2 * box.query_child_packing(child)[2]      # padding
+        return total + box.get_spacing() * len(others)
 
     def set_width(self, width):
         """Minimum width of the pane (and of its content)."""
@@ -50,38 +77,53 @@ class Preview(Gtk.Box):
         self._available = width
         self._refit()
 
-    def set_available(self, width):
+    def set_available(self, width, defer=True):
         """Room the strip has left for the pane; the content grows into it up
         to MAX_PREVIEW_CONTENT. (The pane's own allocation cannot be used for
         this: inside the horizontal scroller it is always granted its
-        request, so the request would only ever feed back into itself.)"""
+        request, so the request would only ever feed back into itself.)
+        Called from the strip's size-allocate, so the layout is applied once
+        that pass is over unless `defer` is False."""
         self._available = width
-        self._refit()
+        self._refit(defer)
 
-    def _on_size_allocate(self, _widget, _alloc):
-        self._refit()
+    def set_height(self, height):
+        """Height the pane is going to get. Telling it before the first show
+        lets the content come up at its final size instead of growing into
+        the pane a moment later."""
+        self._height = height
+        self._refit(defer=False)
 
-    def _refit(self):
+    def _on_size_allocate(self, _widget, alloc):
+        self._height = alloc.height
+        self._refit(defer=True)
+
+    def _refit(self, defer=False):
         margins = self.content.get_margin_start() + self.content.get_margin_end()
         width = min(max(self._available, self._min_width), MAX_PREVIEW_CONTENT) - margins
-        # Pictures are boxed by the content width and by what is left of the
-        # pane's height once the name, details and button have their share.
-        image_box = max(160, min(width, self.get_allocated_height() - 200))
-        if (width, image_box) == (self._content_width, self._image_box):
+        # The media box gets what is left of the pane's height once the name,
+        # details and button have their share, within its bounds.
+        spare = self._height - self._others_height(width)
+        media = max(MIN_PREVIEW_MEDIA, min(MAX_PREVIEW_MEDIA, spare))
+        if (width, media) == (self._content_width, self._media_height):
             return
-        self._content_width, self._image_box = width, image_box
-        # Changing size requests from inside size-allocate is not allowed;
-        # apply once the current layout pass is over.
-        GLib.idle_add(self._apply_layout)
+        self._content_width, self._media_height = width, media
+        if defer:
+            # Changing size requests from inside size-allocate is not
+            # allowed; apply once the current layout pass is over.
+            GLib.idle_add(self._apply_layout)
+        else:
+            self._apply_layout()
 
     def _apply_layout(self):
         self.content.set_size_request(self._content_width, -1)
+        self.media.set_size_request(-1, self._media_height)
         if self._image_path:
             self._show_media(self._image_widget(self._image_path))
         return False
 
     def _image_widget(self, path):
-        w, h = max(self._content_width, 1), max(self._image_box, 1)
+        w, h = max(self._content_width, 1), max(self._media_height, 1)
         try:
             pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, w, h, True)
         except GLib.Error:
@@ -107,20 +149,6 @@ class Preview(Gtk.Box):
         ctype = info.get_content_type() or ""
         size = info.get_size()
         self.name.set_text(info.get_display_name() or info.get_name())
-
-        widget = None
-        path = gfile.get_path()
-        if ctype.startswith("image/") and path and size <= MAX_IMAGE_PREVIEW:
-            widget = self._image_widget(path)
-            if widget is not None:
-                self._image_path = path     # re-scaled when the pane resizes
-        elif is_text_like(ctype):
-            widget = self._text_preview(gfile)
-        if widget is None:
-            widget = Gtk.Image.new_from_gicon(info.get_icon(), Gtk.IconSize.DIALOG)
-            widget.set_pixel_size(96)
-        self._show_media(widget)
-
         rows = [(_("Kind"), Gio.content_type_get_description(ctype) or ctype),
                 (_("Size"), GLib.format_size(size))]
         mtime = info.get_modification_date_time()
@@ -137,7 +165,24 @@ class Preview(Gtk.Box):
                            max_width_chars=28)
             self.details.attach(kl, 0, i, 1, 1)
             self.details.attach(vl, 1, i, 1, 1)
+        # The name and details are in place (and shown, or they would report
+        # no size): now the media box can be sized for the room they leave,
+        # and a picture scaled to it in one go.
         self.show_all()
+        self._refit(defer=False)
+
+        widget = None
+        path = gfile.get_path()
+        if ctype.startswith("image/") and path and size <= MAX_IMAGE_PREVIEW:
+            widget = self._image_widget(path)
+            if widget is not None:
+                self._image_path = path     # re-scaled when the pane resizes
+        elif is_text_like(ctype):
+            widget = self._text_preview(gfile)
+        if widget is None:
+            widget = Gtk.Image.new_from_gicon(info.get_icon(), Gtk.IconSize.DIALOG)
+            widget.set_pixel_size(96)
+        self._show_media(widget)
 
     def _text_preview(self, gfile):
         try:
@@ -151,7 +196,6 @@ class Preview(Gtk.Box):
                           left_margin=6, right_margin=6, top_margin=6)
         tv.set_wrap_mode(Gtk.WrapMode.NONE)
         tv.get_buffer().set_text(text)
-        sw = Gtk.ScrolledWindow(shadow_type=Gtk.ShadowType.IN)
-        sw.set_size_request(-1, 220)
+        sw = Gtk.ScrolledWindow(shadow_type=Gtk.ShadowType.IN)   # fills the media box
         sw.add(tv)
         return sw

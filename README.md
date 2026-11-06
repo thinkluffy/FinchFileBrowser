@@ -2,8 +2,9 @@
 
 A Finder-style Miller-column file browser for Linux, written in Python with
 GTK 3 and made for Linux Mint Cinnamon. It is for **browsing, previewing and
-opening files, plus renaming and the trash**; copying and moving are left to
-Nemo. See [doc/manual.md](doc/manual.md) for how to use it (in Chinese).
+opening files, plus renaming, copy / cut / paste, drag and drop and the
+trash**; anything
+more involved is left to Nemo. See [doc/manual.md](doc/manual.md) for how to use it (in Chinese).
 
 ## Build and run
 
@@ -44,6 +45,7 @@ src/Finch/                  the program
   app/__init__.py           constants, translation loading
   app/util.py               sorting, state file, dialogs, launching other apps
   app/column.py             one directory column: loading, rename, trash, keys
+  app/clipboard.py          copy / cut / paste through the system clipboard (Nemo-compatible)
   app/preview.py            the right-most file preview pane
   app/sidebar.py            sidebar: section headings, device usage bars
   app/window.py             main window: title bar, history, context menu, status

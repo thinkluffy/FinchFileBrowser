@@ -1,10 +1,13 @@
 """Finch — a Finder-style Miller-column file browser for Linux (GTK 3).
 
-Scope: browse, preview, rename, trash and open. Copy / move are left to Nemo.
+Scope: browse, preview, open, rename, copy / cut / paste, drag and drop and
+the trash.
+Anything more involved is left to Nemo.
 
 Package layout:
     util         small helpers: sorting, state file, dialogs, launching
     column       one directory listing (ListView / Column)
+    clipboard    copy / cut / paste through the system clipboard
     preview      the right-most file preview pane
     sidebar      GtkPlacesSidebar with section titles and device usage bars
     window       the main window: tool bar, navigation, context menu
@@ -75,6 +78,8 @@ DEFAULT_COL_WIDTH = 240
 MIN_COL_WIDTH = 140
 PREVIEW_EXTRA = 80
 MAX_PREVIEW_CONTENT = 720       # preview content never grows wider than this
+MIN_PREVIEW_MEDIA = 160         # the picture / text box of the preview is this tall at least
+MAX_PREVIEW_MEDIA = 720         # ...and grows with the window up to this
 MAX_TEXT_PREVIEW = 8 * 1024
 MAX_IMAGE_PREVIEW = 40 * 1024 * 1024
 TEXT_LIKE = {
