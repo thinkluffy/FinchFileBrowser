@@ -7,6 +7,9 @@ from gi.repository import Gdk, Gio, GLib, GObject, Gtk, Pango
 from . import ATTRS, C_FILE, C_ICON, C_INFO, C_ISDIR, C_NAME, MIN_COL_WIDTH, _, ngettext
 from .util import confirm, delete_recursive, natural_key, show_error
 
+# Sort modes a column understands; the window keeps the current one.
+SORT_MODES = ("name", "modified", "size", "kind")
+
 URI_LIST = "text/uri-list"
 _DND_TARGETS = [Gtk.TargetEntry.new(URI_LIST, 0, 0)]
 # Files being dragged out of one of our own columns (empty for drags that
@@ -59,10 +62,12 @@ class Column(Gtk.Box):
         "files-dropped": (GObject.SignalFlags.RUN_FIRST, None, (object, object, bool)),
     }
 
-    def __init__(self, gfile, width, show_hidden):
+    def __init__(self, gfile, width, show_hidden, sort_by="name", sort_reversed=False):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL)
         self.gfile = gfile
         self.show_hidden = show_hidden
+        self.sort_by = sort_by if sort_by in SORT_MODES else "name"
+        self.sort_reversed = sort_reversed
         self._gen = 0
         self._quiet = False
         self._renaming = False
@@ -261,8 +266,11 @@ class Column(Gtk.Box):
                 continue
             is_dir = info.get_file_type() == Gio.FileType.DIRECTORY
             name = info.get_display_name() or info.get_name()
-            rows.append((not is_dir, natural_key(name), info, is_dir, name))
-        rows.sort(key=lambda r: (r[0], r[1]))
+            rows.append((not is_dir, self._sort_key(info, is_dir, name), info, is_dir, name))
+        # Folders always come first; "reversed" flips the order within the
+        # folders and within the files, not the two groups.
+        rows.sort(key=lambda r: r[1], reverse=self.sort_reversed)
+        rows.sort(key=lambda r: r[0])
 
         # Rebuild silently; selection signals are emitted explicitly below.
         self._quiet = True
@@ -311,6 +319,30 @@ class Column(Gtk.Box):
         if show == self.show_hidden:
             return
         self.show_hidden = show
+        self._reload_keep_selection()
+
+    def _sort_key(self, info, is_dir, name):
+        """Ordering of one entry under the current sort mode. Every mode falls
+        back to the name, so entries that tie keep a stable, natural order."""
+        by_name = natural_key(name)
+        if self.sort_by == "modified":
+            # newest first
+            return (-info.get_attribute_uint64("time::modified"), by_name)
+        if self.sort_by == "size":
+            # largest first; a folder's size is meaningless, so folders stay by name
+            return (0 if is_dir else -info.get_size(), by_name)
+        if self.sort_by == "kind":
+            ctype = info.get_content_type() or ""
+            kind = Gio.content_type_get_description(ctype) if ctype else ""
+            return (natural_key(kind), by_name)
+        return (by_name,)
+
+    def set_sort(self, sort_by, sort_reversed):
+        if sort_by not in SORT_MODES:
+            sort_by = "name"
+        if (sort_by, sort_reversed) == (self.sort_by, self.sort_reversed):
+            return
+        self.sort_by, self.sort_reversed = sort_by, sort_reversed
         self._reload_keep_selection()
 
     def selected_all(self):

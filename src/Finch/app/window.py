@@ -5,7 +5,7 @@ import subprocess
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from . import DEFAULT_COL_WIDTH, PREVIEW_EXTRA, _, clipboard, ngettext
-from .column import Column, drop_action
+from .column import SORT_MODES, Column, drop_action
 from .preview import Preview
 from .sidebar import PlacesSidebar
 from .util import launch_default, save_state, show_error
@@ -34,6 +34,10 @@ class FinchWindow(Gtk.ApplicationWindow):
         self.state = state
         self.col_width = int(state.get("column_width", DEFAULT_COL_WIDTH))
         self.show_hidden = bool(state.get("show_hidden", False))
+        self.sort_by = state.get("sort_by", "name")
+        if self.sort_by not in SORT_MODES:
+            self.sort_by = "name"
+        self.sort_reversed = bool(state.get("sort_reversed", False))
         self.set_default_size(int(state.get("width", 1100)),
                               int(state.get("height", 650)))
         self.set_icon_name("system-file-manager")
@@ -75,6 +79,17 @@ class FinchWindow(Gtk.ApplicationWindow):
         edit.append(_("Paste"), "win.paste")
         menu.append_section(None, edit)
         view = Gio.Menu()
+        # Shared by the app menu and every context menu: radio items for the
+        # modes, a check item for the direction, all driven by the actions.
+        sort = Gio.Menu()
+        for mode, label in (("name", _("Name")), ("modified", _("Date Modified")),
+                            ("size", _("Size")), ("kind", _("Kind"))):
+            sort.append(label, "win.sort-by::" + mode)
+        reverse = Gio.Menu()
+        reverse.append(_("Reversed Order"), "win.sort-reversed")
+        sort.append_section(None, reverse)
+        self._sort_menu = sort
+        view.append_submenu(_("Sort By"), sort)
         view.append(_("Show Hidden Files"), "win.show-hidden")
         view.append(_("Reload"), "win.reload")
         view.append(_("Open in Nemo"), "win.open-nemo")
@@ -125,6 +140,14 @@ class FinchWindow(Gtk.ApplicationWindow):
             "show-hidden", None, GLib.Variant.new_boolean(self.show_hidden))
         hidden.connect("change-state", self._on_toggle_hidden)
         self.add_action(hidden)
+        sort_by = Gio.SimpleAction.new_stateful(
+            "sort-by", GLib.VariantType.new("s"), GLib.Variant.new_string(self.sort_by))
+        sort_by.connect("change-state", self._on_sort_by)
+        self.add_action(sort_by)
+        sort_rev = Gio.SimpleAction.new_stateful(
+            "sort-reversed", None, GLib.Variant.new_boolean(self.sort_reversed))
+        sort_rev.connect("change-state", self._on_sort_reversed)
+        self.add_action(sort_rev)
 
         # body
         self.sidebar = PlacesSidebar()
@@ -224,7 +247,8 @@ class FinchWindow(Gtk.ApplicationWindow):
         self.sidebar.sync_location(gfile)
 
     def add_column(self, gfile, select=None, focus=False):
-        col = Column(gfile, self.col_width, self.show_hidden)
+        col = Column(gfile, self.col_width, self.show_hidden,
+                     self.sort_by, self.sort_reversed)
         col.connect("item-selected", self._on_item_selected)
         col.connect("selection-changed", self._on_selection_changed)
         col.connect("item-activated", self._on_item_activated)
@@ -474,6 +498,23 @@ class FinchWindow(Gtk.ApplicationWindow):
         for col in self.columns:
             col.set_show_hidden(self.show_hidden)
 
+    def _on_sort_by(self, action, value):
+        mode = value.get_string()
+        if mode not in SORT_MODES:
+            return
+        action.set_state(value)
+        self.sort_by = mode
+        self._apply_sort()
+
+    def _on_sort_reversed(self, action, value):
+        action.set_state(value)
+        self.sort_reversed = value.get_boolean()
+        self._apply_sort()
+
+    def _apply_sort(self):
+        for col in self.columns:
+            col.set_sort(self.sort_by, self.sort_reversed)
+
     def _on_path_activate(self, entry):
         text = entry.get_text().strip()
         if not text:
@@ -493,6 +534,7 @@ class FinchWindow(Gtk.ApplicationWindow):
 
     def _on_context_menu(self, col, gfile, info, event):
         menu = Gtk.Menu()
+        menu.attach_to_widget(col.view, None)
         is_dir = gfile is not None and info.get_file_type() == Gio.FileType.DIRECTORY
         # On one of several selected rows the menu acts on all of them.
         gfiles, infos = col.selected_all()
@@ -568,8 +610,11 @@ class FinchWindow(Gtk.ApplicationWindow):
             if col.gfile.get_path():
                 item(_("Open in Terminal"), lambda: self.open_terminal(col.gfile))
             item(_("Copy Path"), lambda: self.copy_path(col.gfile))
+        menu.append(Gtk.SeparatorMenuItem())
+        sort = Gtk.MenuItem(label=_("Sort By"))
+        sort.set_submenu(Gtk.Menu.new_from_model(self._sort_menu))
+        menu.append(sort)
         menu.show_all()
-        menu.attach_to_widget(col.view, None)
         menu.popup_at_pointer(event)
 
     def _on_delete(self, *_args):
@@ -581,6 +626,7 @@ class FinchWindow(Gtk.ApplicationWindow):
         self.state.update({
             "width": w, "height": h, "column_width": self.col_width,
             "show_hidden": self.show_hidden,
+            "sort_by": self.sort_by, "sort_reversed": self.sort_reversed,
             "sidebar_width": self.paned.get_position(),
             "last_root": self.columns[0].gfile.get_uri() if self.columns else None,
         })

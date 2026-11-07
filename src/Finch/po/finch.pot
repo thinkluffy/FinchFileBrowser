@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: finch\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-06 22:16+0800\n"
+"POT-Creation-Date: 2026-11-06 22:32+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -39,31 +39,31 @@ msgstr ""
 msgid "“%s” cannot be copied into itself."
 msgstr ""
 
-#: ../app/column.py:285
+#: ../app/column.py:293
 msgid "Empty folder"
 msgstr ""
 
-#: ../app/column.py:376
+#: ../app/column.py:408
 msgid "Could not rename"
 msgstr ""
 
-#: ../app/column.py:425 ../app/window.py:631
+#: ../app/column.py:457 ../app/window.py:677
 msgid "Could not move to trash"
 msgstr ""
 
-#: ../app/column.py:433
+#: ../app/column.py:465
 #, python-format
 msgid "Permanently delete “%s”?"
 msgstr ""
 
-#: ../app/column.py:434
+#: ../app/column.py:466
 #, python-format
 msgid "Permanently delete %d item?"
 msgid_plural "Permanently delete %d items?"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../app/column.py:437
+#: ../app/column.py:469
 msgid ""
 "This item will be deleted immediately, bypassing the trash. This cannot be "
 "undone."
@@ -73,42 +73,42 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../app/column.py:441
+#: ../app/column.py:473
 msgid "_Delete"
 msgstr ""
 
-#: ../app/column.py:452
+#: ../app/column.py:484
 msgid "Could not delete"
 msgstr ""
 
-#: ../app/column.py:464
+#: ../app/column.py:496
 #, python-format
 msgid "The original location of “%s” is unknown."
 msgstr ""
 
-#: ../app/column.py:475
+#: ../app/column.py:507
 msgid "Could not restore"
 msgstr ""
 
-#: ../app/column.py:480
+#: ../app/column.py:512
 msgid "Empty trash?"
 msgstr ""
 
-#: ../app/column.py:481
+#: ../app/column.py:513
 msgid ""
 "All items in the trash will be permanently deleted. This cannot be undone."
 msgstr ""
 
-#: ../app/column.py:483
+#: ../app/column.py:515
 msgid "_Empty Trash"
 msgstr ""
 
-#: ../app/column.py:496
+#: ../app/column.py:528
 msgid "Some items could not be deleted"
 msgstr ""
 
-#: ../app/preview.py:184 ../app/window.py:519 ../app/window.py:525
-#: ../app/window.py:536 ../app/window.py:545
+#: ../app/preview.py:184 ../app/window.py:561 ../app/window.py:567
+#: ../app/window.py:578 ../app/window.py:587
 msgid "Open"
 msgstr ""
 
@@ -125,11 +125,11 @@ msgstr ""
 msgid "Duration"
 msgstr ""
 
-#: ../app/preview.py:322 ../app/preview.py:466
+#: ../app/preview.py:322 ../app/preview.py:466 ../app/window.py:86
 msgid "Kind"
 msgstr ""
 
-#: ../app/preview.py:324 ../app/preview.py:469
+#: ../app/preview.py:324 ../app/preview.py:469 ../app/window.py:86
 msgid "Size"
 msgstr ""
 
@@ -153,7 +153,7 @@ msgid_plural "%d pages"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../app/preview.py:460 ../app/window.py:368
+#: ../app/preview.py:460 ../app/window.py:392
 #, python-format
 msgid "%d item"
 msgid_plural "%d items"
@@ -175,7 +175,7 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. TRANSLATORS: separator between the parts of the status line
-#: ../app/preview.py:466 ../app/window.py:383
+#: ../app/preview.py:466 ../app/window.py:407
 msgid ", "
 msgstr ""
 
@@ -204,7 +204,7 @@ msgstr ""
 msgid "Bookmarks"
 msgstr ""
 
-#: ../app/sidebar.py:12 ../app/window.py:359
+#: ../app/sidebar.py:12 ../app/window.py:383
 msgid "Network"
 msgstr ""
 
@@ -218,7 +218,7 @@ msgstr ""
 msgid "%(used)s used of %(size)s (%(percent).0f%%)"
 msgstr ""
 
-#: ../app/util.py:57 ../app/window.py:654
+#: ../app/util.py:57 ../app/window.py:700
 msgid "Could not open"
 msgstr ""
 
@@ -226,143 +226,159 @@ msgstr ""
 msgid "_Cancel"
 msgstr ""
 
-#: ../app/window.py:59
+#: ../app/window.py:63
 msgid "Back (Alt+←)"
 msgstr ""
 
-#: ../app/window.py:60
+#: ../app/window.py:64
 msgid "Forward (Alt+→)"
 msgstr ""
 
-#: ../app/window.py:61
+#: ../app/window.py:65
 msgid "Up (Alt+↑)"
 msgstr ""
 
-#: ../app/window.py:67
+#: ../app/window.py:71
 msgid "Path"
 msgstr ""
 
-#: ../app/window.py:73 ../app/window.py:538 ../app/window.py:550
+#: ../app/window.py:77 ../app/window.py:580 ../app/window.py:592
 msgid "Cut"
 msgstr ""
 
-#: ../app/window.py:74 ../app/window.py:539 ../app/window.py:551
+#: ../app/window.py:78 ../app/window.py:581 ../app/window.py:593
 msgid "Copy"
 msgstr ""
 
-#: ../app/window.py:75 ../app/window.py:513
+#: ../app/window.py:79 ../app/window.py:555
 msgid "Paste"
 msgstr ""
 
-#: ../app/window.py:78
+#: ../app/window.py:85
+msgid "Name"
+msgstr ""
+
+#: ../app/window.py:85
+msgid "Date Modified"
+msgstr ""
+
+#: ../app/window.py:89
+msgid "Reversed Order"
+msgstr ""
+
+#: ../app/window.py:92 ../app/window.py:614
+msgid "Sort By"
+msgstr ""
+
+#: ../app/window.py:93
 msgid "Show Hidden Files"
 msgstr ""
 
-#: ../app/window.py:79
+#: ../app/window.py:94
 msgid "Reload"
 msgstr ""
 
-#: ../app/window.py:80 ../app/window.py:532 ../app/window.py:555
-#: ../app/window.py:567
+#: ../app/window.py:95 ../app/window.py:574 ../app/window.py:597
+#: ../app/window.py:609
 msgid "Open in Nemo"
 msgstr ""
 
-#: ../app/window.py:81 ../app/window.py:557 ../app/window.py:569
+#: ../app/window.py:96 ../app/window.py:599 ../app/window.py:611
 msgid "Open in Terminal"
 msgstr ""
 
-#: ../app/window.py:84
+#: ../app/window.py:99
 msgid "New Folder (Ctrl+Shift+N)"
 msgstr ""
 
-#: ../app/window.py:275
+#: ../app/window.py:299
 msgid "Untitled Folder"
 msgstr ""
 
-#: ../app/window.py:284
+#: ../app/window.py:308
 msgid "Could not create folder"
 msgstr ""
 
-#: ../app/window.py:359
+#: ../app/window.py:383
 msgid "Trash"
 msgstr ""
 
-#: ../app/window.py:359
+#: ../app/window.py:383
 msgid "Recent"
 msgstr ""
 
-#: ../app/window.py:360
+#: ../app/window.py:384
 msgid "Computer"
 msgstr ""
 
-#: ../app/window.py:372
+#: ../app/window.py:396
 #, python-format
 msgid "%d selected"
 msgid_plural "%d selected"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../app/window.py:378
+#: ../app/window.py:402
 #, python-format
 msgid "%s free"
 msgstr ""
 
-#: ../app/window.py:485
+#: ../app/window.py:526
 msgid "Could not open path"
 msgstr ""
 
-#: ../app/window.py:522 ../app/window.py:529
+#: ../app/window.py:564 ../app/window.py:571
 msgid "Restore"
 msgstr ""
 
-#: ../app/window.py:523 ../app/window.py:530
+#: ../app/window.py:565 ../app/window.py:572
 msgid "Delete Permanently"
 msgstr ""
 
-#: ../app/window.py:526 ../app/window.py:546
+#: ../app/window.py:568 ../app/window.py:588
 msgid "Open With…"
 msgstr ""
 
-#: ../app/window.py:534
+#: ../app/window.py:576
 msgid "Empty Trash"
 msgstr ""
 
-#: ../app/window.py:542 ../app/window.py:562
+#: ../app/window.py:584 ../app/window.py:604
 msgid "Move to Trash"
 msgstr ""
 
-#: ../app/window.py:543 ../app/window.py:563
+#: ../app/window.py:585 ../app/window.py:605
 msgid "Delete"
 msgstr ""
 
-#: ../app/window.py:548
+#: ../app/window.py:590
 msgid "Rename"
 msgstr ""
 
-#: ../app/window.py:559
+#: ../app/window.py:601
 msgid "Show in Nemo"
 msgstr ""
 
-#: ../app/window.py:560 ../app/window.py:570
+#: ../app/window.py:602 ../app/window.py:612
 msgid "Copy Path"
 msgstr ""
 
-#: ../app/window.py:615
+#: ../app/window.py:661
 msgid "Could not paste"
 msgstr ""
 
-#: ../app/window.py:633
+#: ../app/window.py:679
 msgid "Could not move"
 msgstr ""
 
-#: ../app/window.py:633
+#: ../app/window.py:679
 msgid "Could not copy"
 msgstr ""
 
-#: ../app/window.py:676
+#: ../app/window.py:722
 msgid "Could not open terminal"
 msgstr ""
 
-#: ../app/window.py:677
+#: ../app/window.py:723
 msgid "Only local folders can be opened in a terminal."
 msgstr ""
