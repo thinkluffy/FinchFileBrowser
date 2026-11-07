@@ -68,3 +68,5 @@ treeview.view.inactive:selected:focus {
    frames of its next pop-up: the clicked row lights up and fades, the check
    box fills in late. Menus should just show the current state. */
 menu > menuitem, menu menuitem check, menu menuitem radio { transition: none; }
+/* Copy / move progress in the status line: as thin as the usage bars. */
+progressbar.transfer-progress trough, progressbar.transfer-progress progress { min-height: 4px; }

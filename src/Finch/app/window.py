@@ -2,13 +2,14 @@
 import os
 import subprocess
 
-from gi.repository import Gdk, Gio, GLib, Gtk
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import DEFAULT_COL_WIDTH, PREVIEW_EXTRA, _, clipboard, ngettext
 from .column import SORT_MODES, Column, drop_action
 from .preview import Preview
 from .sidebar import PlacesSidebar
-from .util import launch_default, save_state, show_error
+from .transfer import Job
+from .util import confirm, launch_default, save_state, show_error
 
 MAX_HISTORY = 100
 
@@ -170,13 +171,35 @@ class FinchWindow(Gtk.ApplicationWindow):
         self._at_end = True
         self.hsw.get_hadjustment().connect("value-changed", self._on_strip_scrolled)
 
+        # Status line: item counts on the left; while files are being copied
+        # or moved, a progress bar with a cancel button on the right.
         self.status = Gtk.Label(xalign=0.0, margin_start=12, margin_end=12,
-                                margin_top=3, margin_bottom=3)
+                                margin_top=3, margin_bottom=3, ellipsize=Pango.EllipsizeMode.END)
         self.status.get_style_context().add_class("dim-label")
+        self.progress_label = Gtk.Label(xalign=1.0, ellipsize=Pango.EllipsizeMode.MIDDLE)
+        self.progress_label.get_style_context().add_class("dim-label")
+        self.progress_bar = Gtk.ProgressBar(valign=Gtk.Align.CENTER, width_request=140)
+        self.progress_bar.get_style_context().add_class("transfer-progress")
+        self.cancel_button = Gtk.Button.new_from_icon_name("process-stop-symbolic",
+                                                           Gtk.IconSize.MENU)
+        self.cancel_button.set_relief(Gtk.ReliefStyle.NONE)
+        self.cancel_button.set_tooltip_text(_("Cancel"))
+        self.cancel_button.connect("clicked", lambda *_args: self.cancel_transfer())
+        self.progress_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
+                                    margin_end=6)
+        self.progress_box.pack_start(self.progress_label, True, True, 0)
+        self.progress_box.pack_start(self.progress_bar, False, False, 0)
+        self.progress_box.pack_start(self.cancel_button, False, False, 0)
+        self.progress_box.set_no_show_all(True)     # shown while a job runs
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        status_box.pack_start(self.status, True, True, 0)
+        status_box.pack_end(self.progress_box, False, False, 0)
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         right.pack_start(self.hsw, True, True, 0)
         right.pack_start(Gtk.Separator(), False, False, 0)
-        right.pack_start(self.status, False, False, 0)
+        right.pack_start(status_box, False, False, 0)
+        # Copy / move jobs run one after another; the first is the one shown.
+        self._jobs = []
 
         paned = Gtk.Paned()
         paned.pack1(self.sidebar, False, False)
@@ -618,6 +641,10 @@ class FinchWindow(Gtk.ApplicationWindow):
         menu.popup_at_pointer(event)
 
     def _on_delete(self, *_args):
+        if self.transfers_running() and not confirm(
+                self, _("A file operation is still running"),
+                _("Quitting now will leave it unfinished."), _("Quit Anyway")):
+            return True
         self.save_window_state()
         return False
 
@@ -652,13 +679,9 @@ class FinchWindow(Gtk.ApplicationWindow):
         if not files:
             return
         move = op == "cut"
-        clipboard.transfer(files, dest, move,
-                           lambda created, errors: self._on_pasted(dest, created, errors, move))
-
-    def _on_pasted(self, dest, created, errors, move):
         if move:
             clipboard.clear()           # a cut is pasted once
-        self._on_transferred(dest, created, errors, _("Could not paste"))
+        self.start_transfer(files, dest, move, _("Could not paste"))
 
     def drop_files(self, files, dest, move):
         """Files dropped onto the directory `dest` (a column, a folder row
@@ -676,16 +699,73 @@ class FinchWindow(Gtk.ApplicationWindow):
             if errors:
                 show_error(self, _("Could not move to trash"), "\n".join(errors[:10]))
             return
-        title = _("Could not move") if move else _("Could not copy")
-        clipboard.transfer(files, dest, move,
-                           lambda created, errors: self._on_transferred(dest, created, errors, title))
+        self.start_transfer(files, dest, move,
+                            _("Could not move") if move else _("Could not copy"))
 
-    def _on_transferred(self, dest, created, errors, error_title):
-        if errors:
-            show_error(self, error_title, "\n".join(errors[:10]))
-        col = self._column_for(dest) if created else None
+    # -- transfers -----------------------------------------------------------
+    def start_transfer(self, files, dest, move, error_title):
+        """Queue a copy (or `move`) of `files` into `dest`. Jobs run one at a
+        time; the status line shows the running one and lets it be cancelled."""
+        job = Job(files, dest, move)
+        job.error_title = error_title
+        self._jobs.append(job)
+        if len(self._jobs) == 1:
+            self._run_next_job()
+
+    def _run_next_job(self):
+        if not self._jobs:
+            self.progress_box.hide()
+            return
+        job = self._jobs[0]
+        self.progress_bar.set_fraction(0)
+        self._on_job_progress(job)
+        # show_all() is a no-op on a no-show-all widget: show the parts by hand.
+        for child in self.progress_box.get_children():
+            child.show_all()
+        self.progress_box.show()
+        job.start(self._on_job_progress, self._on_job_done)
+
+    def cancel_transfer(self):
+        """Stop the running job; queued ones go ahead afterwards."""
+        if self._jobs:
+            self._jobs[0].cancel()
+            self.progress_label.set_text(_("Cancelling…"))
+            self.cancel_button.set_sensitive(False)
+
+    def transfers_running(self):
+        return bool(self._jobs)
+
+    def _on_job_progress(self, job):
+        if job.cancelled:
+            return
+        if job.scanning:
+            self.progress_bar.pulse()
+            text = _("Preparing to move…") if job.move else _("Preparing to copy…")
+        else:
+            self.progress_bar.set_fraction(job.fraction)
+            verb = _("Moving “%s”") if job.move else _("Copying “%s”")
+            parts = [verb % job.current_name] if job.current_name else []
+            if job.total_bytes:
+                # TRANSLATORS: progress, e.g. "1.2 GB of 4.5 GB"
+                parts.append(_("%s of %s") % (GLib.format_size(job.done_bytes),
+                                              GLib.format_size(job.total_bytes)))
+            text = _(", ").join(parts)
+        self.progress_label.set_text(text)
+        queued = len(self._jobs) - 1
+        if queued > 0:
+            text += " " + ngettext("(%d more waiting)", "(%d more waiting)", queued) % queued
+        self.progress_label.set_text(text)
+
+    def _on_job_done(self, job, created, errors, cancelled):
+        if job in self._jobs:
+            self._jobs.remove(job)
+        self.cancel_button.set_sensitive(True)
+        if errors and not cancelled:
+            show_error(self, job.error_title, "\n".join(errors[:10]))
+        col = self._column_for(job.dest_dir) if created else None
         if col is not None:
             col.reload_and_select(created)
+        self._run_next_job()
 
     # -- external apps -------------------------------------------------------
     def open_with(self, gfile):

@@ -46,6 +46,7 @@ src/Finch/                  the program
   app/util.py               sorting, state file, dialogs, launching other apps
   app/column.py             one directory column: loading, rename, trash, keys
   app/clipboard.py          copy / cut / paste through the system clipboard (Nemo-compatible)
+  app/transfer.py           copy / move jobs: background thread, progress, cancel
   app/preview.py            the right-most file preview pane
   app/thumbs.py             preview caches: in-process LRU + ~/.cache/thumbnails (shared with Nemo)
   app/sidebar.py            sidebar: section headings, device usage bars

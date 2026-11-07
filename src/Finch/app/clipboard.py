@@ -8,15 +8,9 @@ the other way round.
 
 GtkClipboard's set_with_data() is not available from Python, so a hidden
 widget owns the selection and serves the formats on request. The copying
-itself runs on a worker thread; the result is delivered on the main loop.
+itself is done by the transfer module.
 """
-import os
-import threading
-
-from gi.repository import Gdk, Gio, GLib, Gtk
-
-from . import _
-from .util import delete_recursive
+from gi.repository import Gdk, Gio, Gtk
 
 COPIED_FILES = "x-special/gnome-copied-files"
 _TEXT_TARGETS = ("UTF8_STRING", "STRING", "text/plain", "text/plain;charset=utf-8")
@@ -87,80 +81,3 @@ def get_files():
     else:
         op, uris = "copy", cb.wait_for_uris() or []
     return op, [Gio.File.new_for_uri(uri) for uri in uris]
-
-
-# ------------------------------------------------------------- transfer ----
-def _unique_child(parent, name, is_dir):
-    """`name` inside `parent`, or "name (copy)", "name (copy 2)", … if taken."""
-    child = parent.get_child(name)
-    if not child.query_exists(None):
-        return child
-    stem, ext = (name, "") if is_dir else os.path.splitext(name)
-    if not stem:                     # ".bashrc" has no stem to speak of
-        stem, ext = name, ""
-    n = 1
-    while True:
-        # TRANSLATORS: name given to a copy pasted next to the original
-        label = _("%s (copy)") % stem if n == 1 else _("%s (copy %d)") % (stem, n)
-        child = parent.get_child(label + ext)
-        if not child.query_exists(None):
-            return child
-        n += 1
-
-
-def _copy_tree(src, dst):
-    info = src.query_info("standard::type", _NOFOLLOW, None)
-    if info.get_file_type() == Gio.FileType.DIRECTORY:
-        dst.make_directory(None)
-        for child in src.enumerate_children("standard::name", _NOFOLLOW, None):
-            _copy_tree(src.get_child(child.get_name()), dst.get_child(child.get_name()))
-        try:
-            src.copy_attributes(dst, Gio.FileCopyFlags.NONE, None)
-        except GLib.Error:
-            pass
-    else:
-        src.copy(dst, Gio.FileCopyFlags.NOFOLLOW_SYMLINKS, None, None, None)
-
-
-def _move(src, dst):
-    try:
-        src.move(dst, Gio.FileCopyFlags.NOFOLLOW_SYMLINKS
-                 | Gio.FileCopyFlags.ALL_METADATA, None, None, None)
-    except GLib.Error as err:
-        # A directory across file systems: GIO will not recurse for us.
-        if not err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.WOULD_RECURSE):
-            raise
-        _copy_tree(src, dst)
-        delete_recursive(src)
-
-
-def transfer(gfiles, dest_dir, move, on_done):
-    """Copy (or `move`) every file in `gfiles` into `dest_dir` on a worker
-    thread, then call on_done(created, errors) on the main loop: `created`
-    are the new Gio.Files, `errors` a list of messages."""
-    def work():
-        created, errors = [], []
-        for src in gfiles:
-            name = src.get_basename() or src.get_uri()
-            parent = src.get_parent()
-            if move and parent is not None and parent.equal(dest_dir):
-                continue                     # cut and pasted where it already is
-            if dest_dir.equal(src) or dest_dir.has_prefix(src):
-                errors.append((_("“%s” cannot be moved into itself.") if move
-                               else _("“%s” cannot be copied into itself.")) % name)
-                continue
-            try:
-                info = src.query_info("standard::type", _NOFOLLOW, None)
-                is_dir = info.get_file_type() == Gio.FileType.DIRECTORY
-                dst = _unique_child(dest_dir, name, is_dir)
-                (_move if move else _copy_tree)(src, dst)
-                created.append(dst)
-            except GLib.Error as err:
-                errors.append(f"{name}: {err.message}")
-
-        def deliver():
-            on_done(created, errors)
-            return False
-        GLib.idle_add(deliver)
-
-    threading.Thread(target=work, daemon=True).start()
