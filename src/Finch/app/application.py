@@ -69,23 +69,15 @@ class FinchApp(Gtk.Application):
     def do_command_line(self, cmdline):
         args = cmdline.get_arguments()[1:]
         home = Gio.File.new_for_path(GLib.get_home_dir())
-        extra, current = [], 0
-        if args:
-            # Every argument is a tab; the first is the current one.
-            roots = [self._folder(Gio.File.new_for_commandline_arg_and_cwd(a, cmdline.get_cwd()))
-                     for a in args]
-            roots = [r for r in roots if r is not None] or [home]
-        else:
-            # The tabs that were open last time (or the single last root).
-            uris = self.state.get("tabs") or [self.state.get("last_root")]
-            roots = [self._folder(Gio.File.new_for_uri(u)) for u in uris if u]
-            roots = [r for r in roots if r is not None] or [home]
-            current = min(int(self.state.get("current_tab", 0)), len(roots) - 1)
+        # Every argument is a tab, the first the current one; with none,
+        # a single tab on the home folder (where the user was last time is
+        # not remembered).
+        roots = [self._folder(Gio.File.new_for_commandline_arg_and_cwd(a, cmdline.get_cwd()))
+                 for a in args]
+        roots = [r for r in roots if r is not None] or [home]
         win = FinchWindow(self, roots[0], self.state)
         for root in roots[1:]:
             win.open_tab(root, switch=False)
-        if current:
-            win.notebook.set_current_page(current)
         if win.columns:
             win.columns[0].view.grab_focus()
         win.show_all()

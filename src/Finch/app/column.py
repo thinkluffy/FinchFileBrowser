@@ -7,6 +7,9 @@ from gi.repository import Gdk, Gio, GLib, GObject, Gtk, Pango
 from . import ATTRS, C_FILE, C_ICON, C_INFO, C_ISDIR, C_NAME, MIN_COL_WIDTH, _, ngettext
 from .util import confirm, delete_recursive, natural_key, show_error
 
+# The drag handle on a column's right edge: a column takes its width plus this.
+HANDLE_WIDTH = 8
+
 # Sort modes a column understands; the window keeps the current one.
 SORT_MODES = ("name", "modified", "size", "kind")
 
@@ -163,7 +166,7 @@ class Column(Gtk.Box):
 
         # resize handle
         self.handle = Gtk.EventBox()
-        self.handle.set_size_request(8, -1)
+        self.handle.set_size_request(HANDLE_WIDTH, -1)
         self.handle.add_events(Gdk.EventMask.BUTTON_PRESS_MASK
                                | Gdk.EventMask.BUTTON_RELEASE_MASK
                                | Gdk.EventMask.POINTER_MOTION_MASK)

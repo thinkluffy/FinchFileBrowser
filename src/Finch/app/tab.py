@@ -8,8 +8,8 @@ sort), the context menu, drops, and to tell it the location changed.
 """
 from gi.repository import Gio, GLib, Gtk, Pango
 
-from . import PREVIEW_EXTRA, _
-from .column import Column
+from . import _
+from .column import HANDLE_WIDTH, Column
 from .preview import Preview
 from .util import launch_default
 
@@ -197,7 +197,9 @@ class Tab(Gtk.Box):
 
     def show_preview(self, fill):
         """Put a new preview pane at the right end of the strip and `fill` it."""
-        self.preview = Preview(self.win.col_width + PREVIEW_EXTRA)
+        # As wide as a column (list plus handle) at least, so that selecting
+        # a file or a folder in the last column extends the strip equally.
+        self.preview = Preview(self.win.col_width + HANDLE_WIDTH)
         # Takes whatever is left of the strip; its content stays centred.
         # It goes in before it is filled and sized, so that its labels
         # already have their styles and the room it is about to get is
@@ -307,7 +309,7 @@ class Tab(Gtk.Box):
             if col is not except_for:
                 col.sw.set_size_request(width, -1)
         if self.preview is not None:
-            self.preview.set_width(width + PREVIEW_EXTRA)
+            self.preview.set_width(width + HANDLE_WIDTH)
 
     def focus(self):
         col = self.focused_column()

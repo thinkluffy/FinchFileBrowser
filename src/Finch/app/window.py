@@ -581,10 +581,10 @@ class FinchWindow(Gtk.ApplicationWindow):
             "show_hidden": self.show_hidden,
             "sort_by": self.sort_by, "sort_reversed": self.sort_reversed,
             "sidebar_width": self.paned.get_position(),
-            "last_root": self.tab.root.get_uri() if self.tab and self.tab.root else None,
-            "tabs": [t.root.get_uri() for t in self.tabs if t.root is not None],
-            "current_tab": max(self.notebook.get_current_page(), 0),
         })
+        # Where the user was is deliberately not kept: every start is home.
+        for key in ("last_root", "tabs", "current_tab"):
+            self.state.pop(key, None)
         save_state(self.state)
 
     # -- clipboard -----------------------------------------------------------

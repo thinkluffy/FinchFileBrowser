@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: finch\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-09 15:02+0800\n"
+"POT-Creation-Date: 2026-11-09 16:34+0800\n"
 "PO-Revision-Date: 2026-11-05 18:00+0800\n"
 "Last-Translator: Yuanbin Cai\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -104,30 +104,30 @@ msgstr "AES-256 加密，文件名也会隐藏。"
 msgid "AES-256; the file names stay visible."
 msgstr "AES-256 加密，文件名仍可见。"
 
-#: ../app/column.py:295
+#: ../app/column.py:298
 msgid "Empty folder"
 msgstr "空文件夹"
 
-#: ../app/column.py:410
+#: ../app/column.py:413
 msgid "Could not rename"
 msgstr "无法重命名"
 
-#: ../app/column.py:459 ../app/window.py:628
+#: ../app/column.py:462 ../app/window.py:628
 msgid "Could not move to trash"
 msgstr "无法移到回收站"
 
-#: ../app/column.py:467
+#: ../app/column.py:470
 #, python-format
 msgid "Permanently delete “%s”?"
 msgstr "永久删除“%s”？"
 
-#: ../app/column.py:468
+#: ../app/column.py:471
 #, python-format
 msgid "Permanently delete %d item?"
 msgid_plural "Permanently delete %d items?"
 msgstr[0] "永久删除这 %d 项？"
 
-#: ../app/column.py:471
+#: ../app/column.py:474
 msgid ""
 "This item will be deleted immediately, bypassing the trash. This cannot be "
 "undone."
@@ -136,37 +136,37 @@ msgid_plural ""
 "undone."
 msgstr[0] "这个操作不经过回收站，无法撤销。"
 
-#: ../app/column.py:475
+#: ../app/column.py:478
 msgid "_Delete"
 msgstr "删除(_D)"
 
-#: ../app/column.py:486
+#: ../app/column.py:489
 msgid "Could not delete"
 msgstr "无法删除"
 
-#: ../app/column.py:498
+#: ../app/column.py:501
 #, python-format
 msgid "The original location of “%s” is unknown."
 msgstr "不知道“%s”原来的位置。"
 
-#: ../app/column.py:509
+#: ../app/column.py:512
 msgid "Could not restore"
 msgstr "无法还原"
 
-#: ../app/column.py:514
+#: ../app/column.py:517
 msgid "Empty trash?"
 msgstr "清空回收站？"
 
-#: ../app/column.py:515
+#: ../app/column.py:518
 msgid ""
 "All items in the trash will be permanently deleted. This cannot be undone."
 msgstr "回收站里的所有项目都会被永久删除，无法撤销。"
 
-#: ../app/column.py:517
+#: ../app/column.py:520
 msgid "_Empty Trash"
 msgstr "清空(_E)"
 
-#: ../app/column.py:530
+#: ../app/column.py:533
 msgid "Some items could not be deleted"
 msgstr "部分项目无法删除"
 

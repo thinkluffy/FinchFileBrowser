@@ -77,7 +77,6 @@ ATTRS = ",".join([
 ])
 DEFAULT_COL_WIDTH = 240
 MIN_COL_WIDTH = 140
-PREVIEW_EXTRA = 80
 MAX_PREVIEW_CONTENT = 720       # preview content never grows wider than this
 MIN_PREVIEW_MEDIA = 160         # the picture / text box of the preview is this tall at least
 MAX_PREVIEW_MEDIA = 720         # ...and grows with the window up to this

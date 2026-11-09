@@ -25,7 +25,7 @@ This produces, in `output/`:
   that executable.
 
 ```bash
-output/finch              # open the last directory (home on first run)
+output/finch              # open the home directory
 output/finch ~/Pictures   # open a given directory
 cp output/finch.desktop ~/.local/share/applications/
 ```
