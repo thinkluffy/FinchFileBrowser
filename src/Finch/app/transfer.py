@@ -1,12 +1,13 @@
 """Copying and moving files as a cancellable background job with progress.
 
-A Job copies (or moves) a list of files into a directory on a worker thread.
-It first walks the sources to learn how many files and bytes are coming, then
-transfers them one by one, reporting progress on the main loop no more often
-than every PROGRESS_INTERVAL seconds. cancel() stops it between files or in
-the middle of one; a partially written destination is removed, so a cancelled
-job never leaves half a file behind, and a cancelled move never loses the
-source (the source is only deleted once its copy is complete).
+Job is the generic part: a worker thread, a Gio.Cancellable, a first pass
+over the sources to learn how many files and bytes are coming, and progress
+reports on the main loop no more often than every PROGRESS_INTERVAL seconds.
+Transfer does the copying or moving; the archive module builds on the same
+base. cancel() stops a job between files or in the middle of one; a partially
+written destination is removed, so a cancelled job never leaves half a file
+behind, and a cancelled move never loses the source (the source is only
+deleted once its copy is complete).
 """
 import os
 import threading
@@ -44,6 +45,10 @@ def _is_cancelled(err):
     return err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED)
 
 
+def cancelled_error():
+    return GLib.Error.new_literal(Gio.io_error_quark(), "cancelled", Gio.IOErrorEnum.CANCELLED)
+
+
 # The two GIO calls that do the actual work, kept as functions so tests can
 # stand in slow or failing storage for them.
 def _copy_file(src, dst, cancellable, progress):
@@ -56,12 +61,16 @@ def _move_file(src, dst, cancellable, progress):
 
 
 class Job:
-    """One copy or move operation. Read-only for the UI while it runs:
-    `scanning`, `total_files`, `total_bytes`, `done_files`, `done_bytes`,
-    `current_name` (the top-level item being transferred) and `move`."""
+    """A cancellable background operation on `gfiles` that ends in `dest_dir`.
+    Read-only for the UI while it runs: `scanning`, `total_files`,
+    `total_bytes`, `done_files`, `done_bytes`, `current_name` (the top-level
+    item being worked on), `preparing` and `verb` (the texts to show)."""
 
-    def __init__(self, gfiles, dest_dir, move):
-        self.gfiles, self.dest_dir, self.move = list(gfiles), dest_dir, move
+    preparing = ""      # shown while scanning
+    verb = "%s"         # shown with the current item's name afterwards
+
+    def __init__(self, gfiles, dest_dir):
+        self.gfiles, self.dest_dir = list(gfiles), dest_dir
         self.cancellable = Gio.Cancellable()
         self.scanning = True
         self.total_files = self.total_bytes = 0
@@ -103,47 +112,26 @@ class Job:
             self._scan()
             self.scanning = False
             self._report(force=True)
-            for src in self.gfiles:
-                if self.cancelled:
-                    cancelled = True
-                    break
-                name = src.get_basename() or src.get_uri()
-                parent = src.get_parent()
-                if self.move and parent is not None and parent.equal(self.dest_dir):
-                    continue                 # cut and pasted where it already is
-                if self.dest_dir.equal(src) or self.dest_dir.has_prefix(src):
-                    errors.append((_("“%s” cannot be moved into itself.") if self.move
-                                   else _("“%s” cannot be copied into itself.")) % name)
-                    continue
-                self.current_name = name
-                self._report(force=True)
-                dst = None
-                try:
-                    info = src.query_info("standard::type", _NOFOLLOW, self.cancellable)
-                    is_dir = info.get_file_type() == Gio.FileType.DIRECTORY
-                    dst = _unique_child(self.dest_dir, name, is_dir)
-                    (self._move if self.move else self._copy_tree)(src, dst)
-                    created.append(dst)
-                except GLib.Error as err:
-                    self._discard(src, dst)
-                    if _is_cancelled(err):
-                        cancelled = True
-                        break
-                    errors.append(f"{name}: {err.message}")
-                except OSError as err:
-                    self._discard(src, dst)
-                    errors.append(f"{name}: {err}")
+            self._run(created, errors)
         except GLib.Error as err:
-            if _is_cancelled(err):
-                cancelled = True
-            else:
+            if not _is_cancelled(err):
                 errors.append(err.message)
+        except OSError as err:
+            errors.append(str(err))
         if self.cancelled:
             cancelled = True
         GLib.idle_add(self._deliver, created, errors, cancelled)
 
+    def _run(self, created, errors):
+        """Do the work after the scan, appending to `created` and `errors`."""
+        raise NotImplementedError
+
+    def _check_cancelled(self):
+        if self.cancelled:
+            raise cancelled_error()
+
     def _scan(self):
-        """Count what is about to be transferred (sources that will be skipped
+        """Count what is about to be processed (sources that will be skipped
         or refused are counted too; the error is reported later)."""
         for src in self.gfiles:
             self._scan_one(src)
@@ -161,20 +149,94 @@ class Job:
         except GLib.Error as err:
             if _is_cancelled(err):
                 raise
-            return                       # unreadable: the transfer will say so
+            return                       # unreadable: the work will say so
         for child in children:
             self._scan_one(gfile.get_child(child.get_name()))
 
     # The GIO progress callback: `current` bytes of the file in progress.
-    def _file_progress(self, current, _total, _data):
+    def _file_progress(self, current, _total=None, _data=None):
         self.done_bytes = self._file_base + current
         self._report()
 
-    def _file_done(self, size):
+    def _file_done(self, size, files=1):
         self._file_base += size
         self.done_bytes = self._file_base
-        self.done_files += 1
+        self.done_files += files
         self._report()
+
+    def _discard(self, gfile):
+        """Remove what a failed or cancelled operation left at `gfile`."""
+        if gfile is None or not gfile.query_exists(None):
+            return
+        try:
+            delete_recursive(gfile)
+        except GLib.Error:
+            pass
+
+    # -- reporting -------------------------------------------------------------
+    def _report(self, force=False):
+        now = time.monotonic()
+        with self._lock:
+            if self._report_pending:
+                return
+            if not force and now - self._last_report < PROGRESS_INTERVAL:
+                return
+            self._report_pending = True
+            self._last_report = now
+        GLib.idle_add(self._emit_progress)
+
+    def _emit_progress(self):
+        with self._lock:
+            self._report_pending = False
+        if self._on_progress is not None:
+            self._on_progress(self)
+        return False
+
+    def _deliver(self, created, errors, cancelled):
+        self._on_progress = None
+        self._on_done(self, created, errors, cancelled)
+        return False
+
+
+class Transfer(Job):
+    """Copy (or `move`) every file in `gfiles` into `dest_dir`."""
+
+    def __init__(self, gfiles, dest_dir, move):
+        super().__init__(gfiles, dest_dir)
+        self.move = move
+        if move:
+            self.preparing, self.verb = _("Preparing to move…"), _("Moving “%s”")
+        else:
+            self.preparing, self.verb = _("Preparing to copy…"), _("Copying “%s”")
+
+    def _run(self, created, errors):
+        for src in self.gfiles:
+            self._check_cancelled()
+            name = src.get_basename() or src.get_uri()
+            parent = src.get_parent()
+            if self.move and parent is not None and parent.equal(self.dest_dir):
+                continue                 # cut and pasted where it already is
+            if self.dest_dir.equal(src) or self.dest_dir.has_prefix(src):
+                errors.append((_("“%s” cannot be moved into itself.") if self.move
+                               else _("“%s” cannot be copied into itself.")) % name)
+                continue
+            self.current_name = name
+            self._report(force=True)
+            dst = None
+            try:
+                info = src.query_info("standard::type", _NOFOLLOW, self.cancellable)
+                is_dir = info.get_file_type() == Gio.FileType.DIRECTORY
+                dst = _unique_child(self.dest_dir, name, is_dir)
+                (self._move if self.move else self._copy_tree)(src, dst)
+                created.append(dst)
+            except GLib.Error as err:
+                self._discard_partial(src, dst)
+                if _is_cancelled(err):
+                    raise
+                errors.append(f"{name}: {err.message}")
+            except OSError as err:
+                self._discard_partial(src, dst)
+                errors.append(f"{name}: {err}")
 
     def _copy_tree(self, src, dst):
         info = src.query_info("standard::type,standard::size", _NOFOLLOW, self.cancellable)
@@ -203,10 +265,7 @@ class Job:
             return
         # Renamed or copied whole: account for everything underneath.
         size, files = self._tree_size(dst)
-        self._file_base += size
-        self.done_bytes = self._file_base
-        self.done_files += files
-        self._report()
+        self._file_done(size, files)
 
     def _tree_size(self, gfile):
         try:
@@ -224,40 +283,10 @@ class Job:
             pass
         return size, files
 
-    def _discard(self, src, dst):
-        """Remove what a failed or cancelled transfer left at `dst`. A move by
-        rename is atomic, so once the source is gone `dst` is complete and
-        stays; a move that fell back to copying has not deleted its source
-        yet, so dropping the partial copy loses nothing."""
-        if dst is None or not dst.query_exists(None):
-            return
+    def _discard_partial(self, src, dst):
+        """A move by rename is atomic, so once the source is gone `dst` is
+        complete and stays; a move that fell back to copying has not deleted
+        its source yet, so dropping the partial copy loses nothing."""
         if self.move and not src.query_exists(None):
             return
-        try:
-            delete_recursive(dst)
-        except GLib.Error:
-            pass
-
-    # -- reporting -------------------------------------------------------------
-    def _report(self, force=False):
-        now = time.monotonic()
-        with self._lock:
-            if self._report_pending:
-                return
-            if not force and now - self._last_report < PROGRESS_INTERVAL:
-                return
-            self._report_pending = True
-            self._last_report = now
-        GLib.idle_add(self._emit_progress)
-
-    def _emit_progress(self):
-        with self._lock:
-            self._report_pending = False
-        if self._on_progress is not None:
-            self._on_progress(self)
-        return False
-
-    def _deliver(self, created, errors, cancelled):
-        self._on_progress = None
-        self._on_done(self, created, errors, cancelled)
-        return False
+        self._discard(dst)

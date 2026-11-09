@@ -8,7 +8,9 @@ from . import DEFAULT_COL_WIDTH, PREVIEW_EXTRA, _, clipboard, ngettext
 from .column import SORT_MODES, Column, drop_action
 from .preview import Preview
 from .sidebar import PlacesSidebar
-from .transfer import Job
+from .archive import (Archive, Extract, SevenZip, ask_archive, ask_password,
+                      is_archive, needs_sevenzip)
+from .transfer import Transfer
 from .util import confirm, launch_default, save_state, show_error
 
 MAX_HISTORY = 100
@@ -558,6 +560,9 @@ class FinchWindow(Gtk.ApplicationWindow):
     def _on_context_menu(self, col, gfile, info, event):
         menu = Gtk.Menu()
         menu.attach_to_widget(col.view, None)
+        # Built afresh on every right-click: drop it once it is closed (the
+        # chosen item's activate has already run by the time the idle fires).
+        menu.connect("deactivate", lambda m: GLib.idle_add(m.destroy))
         is_dir = gfile is not None and info.get_file_type() == Gio.FileType.DIRECTORY
         # On one of several selected rows the menu acts on all of them.
         gfiles, infos = col.selected_all()
@@ -568,73 +573,92 @@ class FinchWindow(Gtk.ApplicationWindow):
                 if i.get_file_type() != Gio.FileType.DIRECTORY:
                     launch_default(g, self)
 
-        def item(label, cb):
-            mi = Gtk.MenuItem(label=label)
+        def item(label, cb, icon):
+            # ImageMenuItem is deprecated but still the one widget that keeps
+            # a 16 px icon in front of the label whatever the theme setting.
+            mi = Gtk.ImageMenuItem(label=label)
+            mi.set_image(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU))
+            mi.set_always_show_image(True)
             mi.connect("activate", lambda *_args: cb())
             menu.append(mi)
             return mi
 
         def paste(dest):
-            mi = item(_("Paste"), lambda: self.paste(dest))
+            mi = item(_("Paste"), lambda: self.paste(dest), "edit-paste-symbolic")
             mi.set_sensitive(clipboard.has_files())
 
         if col.in_trash():
             # Trash: items can only be restored or destroyed.
             if multi:
-                item(_("Open"), open_all)
+                item(_("Open"), open_all, "document-open-symbolic")
                 if col.is_trash_root():
                     menu.append(Gtk.SeparatorMenuItem())
-                    item(_("Restore"), col.restore_item)
-                    item(_("Delete Permanently"), col.delete_item)
+                    item(_("Restore"), col.restore_item, "edit-undo-symbolic")
+                    item(_("Delete Permanently"), col.delete_item, "edit-delete-symbolic")
             elif gfile is not None:
-                item(_("Open"), lambda: launch_default(gfile, self))
-                item(_("Open With…"), lambda: self.open_with(gfile))
+                item(_("Open"), lambda: launch_default(gfile, self), "document-open-symbolic")
+                item(_("Open With…"), lambda: self.open_with(gfile), "system-run-symbolic")
                 if col.is_trash_root():
                     menu.append(Gtk.SeparatorMenuItem())
-                    item(_("Restore"), lambda: col.restore_item(gfile))
-                    item(_("Delete Permanently"), lambda: col.delete_item(gfile))
+                    item(_("Restore"), lambda: col.restore_item(gfile), "edit-undo-symbolic")
+                    item(_("Delete Permanently"), lambda: col.delete_item(gfile), "edit-delete-symbolic")
             else:
-                item(_("Open in Nemo"), lambda: self.open_in_nemo(col.gfile))
+                item(_("Open in Nemo"), lambda: self.open_in_nemo(col.gfile), "system-file-manager-symbolic")
                 if col.is_trash_root():
-                    item(_("Empty Trash"), col.empty_trash)
+                    item(_("Empty Trash"), col.empty_trash, "user-trash-full-symbolic")
         elif multi:
-            item(_("Open"), open_all)
+            item(_("Open"), open_all, "document-open-symbolic")
             menu.append(Gtk.SeparatorMenuItem())
-            item(_("Cut"), lambda: clipboard.set_files(gfiles, cut=True))
-            item(_("Copy"), lambda: clipboard.set_files(gfiles))
+            item(_("Cut"), lambda: clipboard.set_files(gfiles, cut=True), "edit-cut-symbolic")
+            item(_("Copy"), lambda: clipboard.set_files(gfiles), "edit-copy-symbolic")
             paste(col.gfile)
+            if all(g.get_path() for g in gfiles):
+                menu.append(Gtk.SeparatorMenuItem())
+                # All archives: offer to unpack them; otherwise to pack them.
+                if all(is_archive(i.get_content_type()) for i in infos):
+                    item(_("Extract Here"), lambda: self.extract(gfiles, col.gfile), "archive-extract-symbolic")
+                else:
+                    item(_("Compress…"), lambda: self.compress(gfiles, col.gfile), "package-x-generic-symbolic")
             menu.append(Gtk.SeparatorMenuItem())
-            item(_("Move to Trash"), col.trash_item)
-            item(_("Delete"), col.delete_item)
+            item(_("Move to Trash"), col.trash_item, "user-trash-symbolic")
+            item(_("Delete"), col.delete_item, "edit-delete-symbolic")
         elif gfile is not None:
-            item(_("Open"), lambda: launch_default(gfile, self))
-            item(_("Open With…"), lambda: self.open_with(gfile))
+            item(_("Open"), lambda: launch_default(gfile, self), "document-open-symbolic")
+            item(_("Open With…"), lambda: self.open_with(gfile), "system-run-symbolic")
             menu.append(Gtk.SeparatorMenuItem())
-            item(_("Rename"), col.start_rename)
+            item(_("Rename"), col.start_rename, "document-edit-symbolic")
             menu.append(Gtk.SeparatorMenuItem())
-            item(_("Cut"), lambda: self.copy_to_clipboard(gfile, cut=True))
-            item(_("Copy"), lambda: self.copy_to_clipboard(gfile))
+            item(_("Cut"), lambda: self.copy_to_clipboard(gfile, cut=True), "edit-cut-symbolic")
+            item(_("Copy"), lambda: self.copy_to_clipboard(gfile), "edit-copy-symbolic")
             paste(gfile if is_dir else col.gfile)
+            if gfile.get_path():
+                menu.append(Gtk.SeparatorMenuItem())
+                if not is_dir and is_archive(info.get_content_type()):
+                    item(_("Extract Here"), lambda: self.extract([gfile], col.gfile), "archive-extract-symbolic")
+                else:
+                    item(_("Compress…"), lambda: self.compress([gfile], col.gfile), "package-x-generic-symbolic")
             menu.append(Gtk.SeparatorMenuItem())
             if is_dir:
-                item(_("Open in Nemo"), lambda: self.open_in_nemo(gfile))
+                item(_("Open in Nemo"), lambda: self.open_in_nemo(gfile), "system-file-manager-symbolic")
                 if gfile.get_path():
-                    item(_("Open in Terminal"), lambda: self.open_terminal(gfile))
+                    item(_("Open in Terminal"), lambda: self.open_terminal(gfile), "utilities-terminal-symbolic")
             else:
-                item(_("Show in Nemo"), lambda: self.open_in_nemo(gfile))
-            item(_("Copy Path"), lambda: self.copy_path(gfile))
+                item(_("Show in Nemo"), lambda: self.open_in_nemo(gfile), "system-file-manager-symbolic")
+            item(_("Copy Path"), lambda: self.copy_path(gfile), "insert-link-symbolic")
             menu.append(Gtk.SeparatorMenuItem())
-            item(_("Move to Trash"), lambda: col.trash_item(gfile))
-            item(_("Delete"), lambda: col.delete_item(gfile))
+            item(_("Move to Trash"), lambda: col.trash_item(gfile), "user-trash-symbolic")
+            item(_("Delete"), lambda: col.delete_item(gfile), "edit-delete-symbolic")
         else:
             paste(col.gfile)
             menu.append(Gtk.SeparatorMenuItem())
-            item(_("Open in Nemo"), lambda: self.open_in_nemo(col.gfile))
+            item(_("Open in Nemo"), lambda: self.open_in_nemo(col.gfile), "system-file-manager-symbolic")
             if col.gfile.get_path():
-                item(_("Open in Terminal"), lambda: self.open_terminal(col.gfile))
-            item(_("Copy Path"), lambda: self.copy_path(col.gfile))
+                item(_("Open in Terminal"), lambda: self.open_terminal(col.gfile), "utilities-terminal-symbolic")
+            item(_("Copy Path"), lambda: self.copy_path(col.gfile), "insert-link-symbolic")
         menu.append(Gtk.SeparatorMenuItem())
-        sort = Gtk.MenuItem(label=_("Sort By"))
+        sort = Gtk.ImageMenuItem(label=_("Sort By"))
+        sort.set_image(Gtk.Image.new_from_icon_name("view-sort-descending-symbolic", Gtk.IconSize.MENU))
+        sort.set_always_show_image(True)
         sort.set_submenu(Gtk.Menu.new_from_model(self._sort_menu))
         menu.append(sort)
         menu.show_all()
@@ -706,7 +730,27 @@ class FinchWindow(Gtk.ApplicationWindow):
     def start_transfer(self, files, dest, move, error_title):
         """Queue a copy (or `move`) of `files` into `dest`. Jobs run one at a
         time; the status line shows the running one and lets it be cancelled."""
-        job = Job(files, dest, move)
+        self._queue_job(Transfer(files, dest, move), error_title)
+
+    def compress(self, files, dest_dir):
+        """Ask for a name and format, then pack `files` into an archive in
+        `dest_dir` as a background job."""
+        picked = ask_archive(self, files, dest_dir)
+        if picked is None:
+            return
+        dest, password = picked
+        if needs_sevenzip(dest.get_basename(), password):
+            job = SevenZip(files, dest, password)
+        else:
+            job = Archive(files, dest)
+        self._queue_job(job, _("Could not compress"))
+
+    def extract(self, archives, dest_dir, password=""):
+        """Unpack each of `archives` into `dest_dir` as background jobs."""
+        for archive in archives:
+            self._queue_job(Extract(archive, dest_dir, password), _("Could not extract"))
+
+    def _queue_job(self, job, error_title):
         job.error_title = error_title
         self._jobs.append(job)
         if len(self._jobs) == 1:
@@ -740,17 +784,15 @@ class FinchWindow(Gtk.ApplicationWindow):
             return
         if job.scanning:
             self.progress_bar.pulse()
-            text = _("Preparing to move…") if job.move else _("Preparing to copy…")
+            text = job.preparing
         else:
             self.progress_bar.set_fraction(job.fraction)
-            verb = _("Moving “%s”") if job.move else _("Copying “%s”")
-            parts = [verb % job.current_name] if job.current_name else []
+            parts = [job.verb % job.current_name] if job.current_name else []
             if job.total_bytes:
                 # TRANSLATORS: progress, e.g. "1.2 GB of 4.5 GB"
                 parts.append(_("%s of %s") % (GLib.format_size(job.done_bytes),
                                               GLib.format_size(job.total_bytes)))
             text = _(", ").join(parts)
-        self.progress_label.set_text(text)
         queued = len(self._jobs) - 1
         if queued > 0:
             text += " " + ngettext("(%d more waiting)", "(%d more waiting)", queued) % queued
@@ -765,6 +807,11 @@ class FinchWindow(Gtk.ApplicationWindow):
         col = self._column_for(job.dest_dir) if created else None
         if col is not None:
             col.reload_and_select(created)
+        if getattr(job, "password_needed", False) and not cancelled:
+            # An encrypted archive (or a wrong password): ask and go again.
+            password = ask_password(self, job.archive.get_basename())
+            if password is not None:
+                self.extract([job.archive], job.dest_dir, password)
         self._run_next_job()
 
     # -- external apps -------------------------------------------------------
