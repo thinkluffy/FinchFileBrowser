@@ -1,33 +1,17 @@
-"""The main window: two-row title bar, sidebar, the strip of columns, status line."""
+"""The main window: two-row title bar, sidebar, tabs of columns, status line."""
 import os
 import subprocess
 
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from . import DEFAULT_COL_WIDTH, PREVIEW_EXTRA, _, clipboard, ngettext
-from .column import SORT_MODES, Column, drop_action
-from .preview import Preview
+from . import DEFAULT_COL_WIDTH, _, clipboard, ngettext
+from .column import SORT_MODES, drop_action
 from .sidebar import PlacesSidebar
 from .archive import (Archive, Extract, SevenZip, ask_archive, ask_password,
                       is_archive, needs_sevenzip)
+from .tab import Tab, location_name
 from .transfer import Transfer
 from .util import confirm, launch_default, save_state, show_error
-
-MAX_HISTORY = 100
-
-
-def _child_towards(parent, target):
-    """The child of `parent` that lies on the way to `target` (`target`
-    itself when it is a direct child), or None if `target` is not below it."""
-    node = target
-    while node is not None:
-        above = node.get_parent()
-        if above is None:
-            return None
-        if above.equal(parent):
-            return node
-        node = above
-    return None
 
 
 class FinchWindow(Gtk.ApplicationWindow):
@@ -44,8 +28,6 @@ class FinchWindow(Gtk.ApplicationWindow):
         self.set_default_size(int(state.get("width", 1100)),
                               int(state.get("height", 650)))
         self.set_icon_name("system-file-manager")
-        self.columns = []
-        self.preview = None
 
         # Title bar in two rows, Finder style: a normal-height header bar with
         # the folder name and the window buttons, then a toolbar row below it
@@ -76,6 +58,9 @@ class FinchWindow(Gtk.ApplicationWindow):
         toolbar.set_custom_title(self.path_entry)
 
         menu = Gio.Menu()
+        tabs = Gio.Menu()
+        tabs.append(_("New Tab"), "win.new-tab")
+        menu.append_section(None, tabs)
         edit = Gio.Menu()
         edit.append(_("Cut"), "win.cut")
         edit.append(_("Copy"), "win.copy")
@@ -118,12 +103,6 @@ class FinchWindow(Gtk.ApplicationWindow):
 
         # actions
         self._up_action = self._add_action("up", self.go_up)
-        # Finder-style history of *locations*: (root, deepest item shown).
-        # Changing the root and selecting a folder in a column both add an
-        # entry; back / forward restore the root and re-open the columns
-        # down to the item. `_target` is the item still being re-opened.
-        self._history, self._hist_pos = [], -1
-        self._target = None
         self._back_action = self._add_action("back", self.go_back)
         self._forward_action = self._add_action("forward", self.go_forward)
         self._add_action("reload", self.reload_all)
@@ -135,10 +114,13 @@ class FinchWindow(Gtk.ApplicationWindow):
         self._add_action("cut", lambda: self.copy_selection(cut=True))
         self._add_action("copy", self.copy_selection)
         self._paste_action = self._add_action("paste", self.paste)
+        self._add_action("new-tab", lambda: self.open_tab(self.current_dir() or self.tab.root))
+        self._add_action("close-tab", self.close_tab)
+        self._add_action("next-tab", lambda: self._cycle_tab(1))
+        self._add_action("prev-tab", lambda: self._cycle_tab(-1))
         # Paste is offered whenever the clipboard holds files (from us or Nemo).
         Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).connect(
             "owner-change", lambda *_args: self._update_nav_actions())
-        self._update_nav_actions()
         hidden = Gio.SimpleAction.new_stateful(
             "show-hidden", None, GLib.Variant.new_boolean(self.show_hidden))
         hidden.connect("change-state", self._on_toggle_hidden)
@@ -154,7 +136,10 @@ class FinchWindow(Gtk.ApplicationWindow):
 
         # body
         self.sidebar = PlacesSidebar()
-        self.sidebar.connect("open-location", lambda sb, loc, flags: self.set_root(loc))
+        # Middle-click (and the sidebar's own context menu) open a place in
+        # a new tab.
+        self.sidebar.set_open_flags(Gtk.PlacesOpenFlags.NORMAL | Gtk.PlacesOpenFlags.NEW_TAB)
+        self.sidebar.connect("open-location", self._on_sidebar_open)
         self.sidebar.connect("show-error-message",
                              lambda sb, p, s: show_error(self, p, s))
         # Files dropped on a place in the sidebar go there too.
@@ -164,14 +149,10 @@ class FinchWindow(Gtk.ApplicationWindow):
                              lambda sb, dest, files, action:
                              self.drop_files(list(files), dest, action == Gdk.DragAction.MOVE))
 
-        self.colbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        self.hsw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
-                                      vscrollbar_policy=Gtk.PolicyType.NEVER)
-        self.hsw.add(self.colbox)
-        self.hsw.connect("size-allocate", self._on_strip_allocated)
-        # Keep the right end in view across window resizes while it was in view.
-        self._at_end = True
-        self.hsw.get_hadjustment().connect("value-changed", self._on_strip_scrolled)
+        # Tabs: the strip of tab labels only appears once there are two.
+        self.notebook = Gtk.Notebook(show_border=False, scrollable=True, show_tabs=False)
+        self.notebook.connect("switch-page", self._on_tab_switched)
+        self.notebook.connect("page-removed", lambda *_args: self._update_tab_bar())
 
         # Status line: item counts on the left; while files are being copied
         # or moved, a progress bar with a cancel button on the right.
@@ -197,7 +178,7 @@ class FinchWindow(Gtk.ApplicationWindow):
         status_box.pack_start(self.status, True, True, 0)
         status_box.pack_end(self.progress_box, False, False, 0)
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        right.pack_start(self.hsw, True, True, 0)
+        right.pack_start(self.notebook, True, True, 0)
         right.pack_start(Gtk.Separator(), False, False, 0)
         right.pack_start(status_box, False, False, 0)
         # Copy / move jobs run one after another; the first is the one shown.
@@ -211,7 +192,7 @@ class FinchWindow(Gtk.ApplicationWindow):
         self.add(paned)
 
         self.connect("delete-event", self._on_delete)
-        self.set_root(root)
+        self.open_tab(root)
 
     # -- helpers -------------------------------------------------------------
     def _add_action(self, name, cb):
@@ -219,30 +200,6 @@ class FinchWindow(Gtk.ApplicationWindow):
         act.connect("activate", lambda *_args: cb())
         self.add_action(act)
         return act
-
-    def _focused_column(self):
-        """The column that has keyboard focus, else the last one (or None)."""
-        for col in reversed(self.columns):
-            # is_focus, not has_focus: the latter is False for every widget
-            # while the window itself is not the active one.
-            if col.view.is_focus():
-                return col
-        return self.columns[-1] if self.columns else None
-
-    def current_dir(self):
-        """The directory the window is "in", as the title and path box show
-        it: the folder selected in the focused column if one is, else that
-        column's own folder. Paste, New Folder and Open in Terminal use it."""
-        col = self._focused_column()
-        if col is None:
-            return None
-        gfile, info = col.selected()
-        if info is not None and info.get_file_type() == Gio.FileType.DIRECTORY:
-            return gfile
-        return col.gfile
-
-    def _column_for(self, gfile):
-        return next((c for c in self.columns if c.gfile.equal(gfile)), None)
 
     def do_key_press_event(self, event):
         # GtkWindow runs accelerators before the focused widget sees a key, so
@@ -254,67 +211,160 @@ class FinchWindow(Gtk.ApplicationWindow):
             return True
         return Gtk.ApplicationWindow.do_key_press_event(self, event)
 
-    # -- navigation ----------------------------------------------------------
-    def set_root(self, gfile, select=None, focus=False, record=True):
-        """Show `gfile` as the left-most column. `select` may be any item
-        below it: the columns are re-opened level by level down to it."""
-        if record:
-            self._record(gfile, select or gfile)
-        self._target = select
-        for col in self.columns:
-            col.destroy()
-        self.columns = []
-        self._remove_preview()
-        self.add_column(gfile, select=_child_towards(gfile, select) if select else None,
-                        focus=focus)
-        self._update_path(gfile)
-        self._update_nav_actions()
-        self.sidebar.sync_location(gfile)
+    # -- tabs ------------------------------------------------------------------
+    @property
+    def tabs(self):
+        return self.notebook.get_children()
+
+    @property
+    def tab(self):
+        """The tab being looked at."""
+        page = self.notebook.get_current_page()
+        return self.notebook.get_nth_page(page) if page >= 0 else None
+
+    # The current tab's parts, for code (and tests) that think in one tab.
+    @property
+    def columns(self):
+        return self.tab.columns if self.tab is not None else []
+
+    @property
+    def preview(self):
+        return self.tab.preview if self.tab is not None else None
+
+    @property
+    def _history(self):
+        return self.tab._history if self.tab is not None else []
+
+    @property
+    def _hist_pos(self):
+        return self.tab._hist_pos if self.tab is not None else -1
+
+    def open_tab(self, gfile, select=None, switch=True):
+        """Add a tab showing `gfile` (selecting `select` below it) and,
+        unless told otherwise, switch to it."""
+        tab = Tab(self, gfile)
+        if select is not None:
+            tab.set_root(gfile, select=select)
+        label = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        label.pack_start(tab.title, True, True, 0)
+        close = Gtk.Button.new_from_icon_name("window-close-symbolic", Gtk.IconSize.MENU)
+        close.set_relief(Gtk.ReliefStyle.NONE)
+        close.get_style_context().add_class("tab-close")
+        close.connect("clicked", lambda *_args: self.close_tab(tab))
+        label.pack_start(close, False, False, 0)
+        label.show_all()
+        tab.show_all()
+        page = self.notebook.append_page(tab, label)
+        self.notebook.set_tab_reorderable(tab, True)
+        # Equal-width tabs across the whole strip, Finder-style.
+        self.notebook.child_set_property(tab, "tab-expand", True)
+        self.notebook.child_set_property(tab, "tab-fill", True)
+        self._update_tab_bar()
+        if switch:
+            self.notebook.set_current_page(page)
+            tab.focus()
+        return tab
+
+    def close_tab(self, tab=None):
+        """Close `tab` (default: the current one); the last tab closes the
+        window."""
+        tab = tab or self.tab
+        if tab is None:
+            return
+        if len(self.tabs) == 1:
+            if not self._on_delete():
+                self.destroy()
+            return
+        self.notebook.remove_page(self.notebook.page_num(tab))
+        tab.destroy()
+        if self.tab is not None:
+            self.tab.focus()
+
+    def _cycle_tab(self, step):
+        n = len(self.tabs)
+        if n > 1:
+            self.notebook.set_current_page((self.notebook.get_current_page() + step) % n)
+            self.tab.focus()
+
+    def _update_tab_bar(self):
+        self.notebook.set_show_tabs(len(self.tabs) > 1)
+
+    def _on_tab_switched(self, notebook, tab, page):
+        # Called before the page is current: look at `tab`, not self.tab.
+        self._show_location(tab)
+        GLib.idle_add(self._update_status)
+
+    def _on_sidebar_open(self, sidebar, location, flags):
+        if flags & Gtk.PlacesOpenFlags.NEW_TAB:
+            self.open_tab(location)
+        else:
+            self.set_root(location)
+
+    # -- the current tab -------------------------------------------------------
+    def _focused_column(self):
+        return self.tab.focused_column() if self.tab is not None else None
+
+    def current_dir(self):
+        return self.tab.current_dir() if self.tab is not None else None
+
+    def _column_for(self, gfile):
+        """The column showing `gfile`: in the current tab if it has one, else
+        in any other tab."""
+        tabs = [self.tab] + [t for t in self.tabs if t is not self.tab] if self.tab else []
+        for tab in tabs:
+            col = tab.column_for(gfile)
+            if col is not None:
+                return col
+        return None
+
+    def set_root(self, gfile, select=None, focus=False):
+        self.tab.set_root(gfile, select=select, focus=focus)
 
     def add_column(self, gfile, select=None, focus=False):
-        col = Column(gfile, self.col_width, self.show_hidden,
-                     self.sort_by, self.sort_reversed)
-        col.connect("item-selected", self._on_item_selected)
-        col.connect("selection-changed", self._on_selection_changed)
-        col.connect("item-activated", self._on_item_activated)
-        col.connect("width-changed", self._on_width_changed)
-        col.connect("key-nav", self._on_key_nav)
-        col.connect("context-menu", self._on_context_menu)
-        col.connect("loaded", lambda *_args: self._update_status())
-        col.connect("files-dropped", lambda c, files, dest, move: self.drop_files(files, dest, move))
-        self.colbox.pack_start(col, False, False, 0)
-        col.show_all()
-        self.columns.append(col)
-        col.load(select=select, focus=focus)
-        self._scroll_to_end_when_allocated(col)
-        return col
+        return self.tab.add_column(gfile, select=select, focus=focus)
 
-    def truncate_after(self, col):
-        idx = self.columns.index(col)
-        for extra in self.columns[idx + 1:]:
-            extra.destroy()
-        self.columns = self.columns[:idx + 1]
-        self._remove_preview()
+    def go_up(self):
+        self.tab.go_up()
 
-    def _remove_preview(self):
-        if self.preview is not None:
-            self.preview.destroy()
-            self.preview = None
+    def go_back(self):
+        self.tab.go_back()
 
-    def _on_strip_allocated(self, *_args):
-        self._fit_preview()
-        if self._at_end:
-            GLib.idle_add(self._scroll_to_end)
+    def go_forward(self):
+        self.tab.go_forward()
 
-    def _on_strip_scrolled(self, adj):
-        self._at_end = adj.get_value() + adj.get_page_size() >= adj.get_upper() - 1
+    def reload_all(self):
+        for tab in self.tabs:
+            tab.reload()
+        self.sidebar.refresh_usage()
 
-    def _fit_preview(self, defer=True):
-        """Tell the preview how much of the strip the columns leave to it."""
-        if self.preview is None:
-            return
-        used = sum(col.get_allocated_width() for col in self.columns)
-        self.preview.set_available(self.hsw.get_allocated_width() - used, defer)
+    def _on_location_changed(self, tab):
+        """A tab moved: the title bar follows the current tab only."""
+        if tab is self.tab:
+            self._show_location(tab)
+
+    def _show_location(self, tab):
+        gfile = tab.location
+        text = gfile.get_parse_name()
+        self.path_entry.set_text(text)
+        self.path_entry.set_position(-1)
+        name = location_name(gfile)
+        self.header.set_title(name)
+        self.set_title(name)
+        self._update_nav_actions(tab)
+        if tab.root is not None:
+            self.sidebar.sync_location(tab.root)
+
+    def _update_nav_actions(self, tab=None):
+        tab = tab or self.tab
+        self._back_action.set_enabled(tab is not None and tab.can_go_back())
+        self._forward_action.set_enabled(tab is not None and tab.can_go_forward())
+        root = tab.root if tab is not None else None
+        self._up_action.set_enabled(root is not None and root.get_parent() is not None)
+        self._terminal_action.set_enabled(root is not None and root.get_path() is not None)
+        writable = root is not None and root.get_uri_scheme() not in (
+            "trash", "recent", "network", "computer")
+        self._new_folder_action.set_enabled(writable)
+        self._paste_action.set_enabled(writable and clipboard.has_files())
 
     def new_folder(self):
         """Create an untitled folder in the current directory and rename it."""
@@ -336,84 +386,10 @@ class FinchWindow(Gtk.ApplicationWindow):
         if col is not None:
             col.select_and_rename(child)
 
-    def _record(self, root, leaf):
-        """Append the location (root, leaf) to the history, dropping any
-        forward entries; a repeat of the current location is not added."""
-        del self._history[self._hist_pos + 1:]
-        if self._history:
-            last_root, last_leaf = self._history[-1]
-            if last_root.equal(root) and last_leaf.equal(leaf):
-                return
-        self._history.append((root, leaf))
-        del self._history[:-MAX_HISTORY]
-        self._hist_pos = len(self._history) - 1
-        self._update_nav_actions()
-
-    def _restore(self, pos):
-        self._hist_pos = pos
-        root, leaf = self._history[pos]
-        self.set_root(root, select=None if leaf.equal(root) else leaf, record=False)
-
-    def go_back(self):
-        if self._hist_pos > 0:
-            self._restore(self._hist_pos - 1)
-
-    def go_forward(self):
-        if self._hist_pos + 1 < len(self._history):
-            self._restore(self._hist_pos + 1)
-
-    def _update_nav_actions(self):
-        self._back_action.set_enabled(self._hist_pos > 0)
-        self._forward_action.set_enabled(self._hist_pos + 1 < len(self._history))
-        root = self.columns[0].gfile if self.columns else None
-        self._up_action.set_enabled(root is not None and root.get_parent() is not None)
-        self._terminal_action.set_enabled(root is not None and root.get_path() is not None)
-        writable = root is not None and root.get_uri_scheme() not in (
-            "trash", "recent", "network", "computer")
-        self._new_folder_action.set_enabled(writable)
-        self._paste_action.set_enabled(writable and clipboard.has_files())
-
-    def go_up(self):
-        if not self.columns:
-            return
-        old_root = self.columns[0].gfile
-        parent = old_root.get_parent()
-        if parent is None:
-            return
-        self.set_root(parent, select=old_root, focus=True)
-
-    def reload_all(self):
-        for col in self.columns:
-            col._reload_keep_selection()
-        self.sidebar.refresh_usage()
-
-
-    def _scroll_to_end_when_allocated(self, widget):
-        def on_alloc(w, alloc):
-            w.disconnect(handler_id)
-            GLib.idle_add(self._scroll_to_end)
-        handler_id = widget.connect("size-allocate", on_alloc)
-
-    def _scroll_to_end(self):
-        adj = self.hsw.get_hadjustment()
-        adj.set_value(adj.get_upper() - adj.get_page_size())
-        return False
-
-    def _update_path(self, gfile):
-        text = gfile.get_parse_name()
-        self.path_entry.set_text(text)
-        self.path_entry.set_position(-1)
-        name = gfile.get_basename() or text
-        if gfile.get_parent() is None:
-            name = {"trash": _("Trash"), "recent": _("Recent"), "network": _("Network"),
-                    "computer": _("Computer")}.get(gfile.get_uri_scheme(), name)
-        self.header.set_title(name)
-        self.set_title(name)
-
     def _update_status(self):
         col = self._focused_column()
         if col is None:
-            return
+            return False
         parts = [ngettext("%d item", "%d items", col.item_count) % col.item_count]
         _gfiles, infos = col.selected_all()
         files = [i for i in infos if i.get_file_type() != Gio.FileType.DIRECTORY]
@@ -430,98 +406,20 @@ class FinchWindow(Gtk.ApplicationWindow):
             pass
         # TRANSLATORS: separator between the parts of the status line
         self.status.set_text(_(", ").join(parts))
+        return False
 
-    # -- signal handlers -----------------------------------------------------
-    def _on_item_selected(self, col, gfile, info):
-        self.truncate_after(col)
-        # Are we still re-opening columns towards a history entry?
-        target, nxt = self._target, None
-        if target is not None:
-            if gfile is not None and gfile.equal(target):
-                self._target = None             # arrived
-            elif gfile is not None:
-                nxt = _child_towards(gfile, target)
-                if nxt is None:
-                    self._target = None         # the user went elsewhere
-                    target = None
-            else:
-                self._target = target = None
-        if gfile is None:
-            self._update_path(col.gfile)
-        elif info.get_file_type() == Gio.FileType.DIRECTORY:
-            if target is None:
-                self._record(self.columns[0].gfile, gfile)
-            self.add_column(gfile, select=nxt)
-            self._update_path(gfile)
-        else:
-            if target is None and self._history:
-                # Remember the file with the current location, so that
-                # coming back here shows its preview again.
-                self._history[self._hist_pos] = (self.columns[0].gfile, gfile)
-            self._show_preview(lambda pv: pv.set_file(gfile, info))
-            self._update_path(gfile)
-        self._update_status()
-
-    def _on_selection_changed(self, col, gfiles, infos):
-        """Several items selected in `col`: nothing opens to the right but a
-        summary of them, and the location history is left alone."""
-        self.truncate_after(col)
-        self._target = None
-        self._show_preview(lambda pv: pv.set_files(gfiles, infos))
-        self._update_path(col.gfile)
-        self._update_status()
-
-    def _show_preview(self, fill):
-        """Put a new preview pane at the right end of the strip and `fill` it."""
-        self.preview = Preview(self.col_width + PREVIEW_EXTRA)
-        # Takes whatever is left of the strip; its content stays centred.
-        # It goes in before it is filled and sized, so that its labels
-        # already have their styles and the room it is about to get is
-        # known: then the picture comes up at its final size instead of
-        # jumping to it after the first layout.
-        self.colbox.pack_start(self.preview, True, True, 0)
-        self.preview.set_height(self.colbox.get_allocated_height())
-        self._fit_preview(defer=False)
-        fill(self.preview)
-        self.preview.show_all()
-        self._scroll_to_end_when_allocated(self.preview)
-
-    def _on_item_activated(self, col, gfile, info):
-        if info.get_file_type() == Gio.FileType.DIRECTORY:
-            self._on_key_nav(col, "right")
-        else:
-            launch_default(gfile, self)
-
-    def _on_key_nav(self, col, direction):
-        idx = self.columns.index(col)
-        if direction == "left" and idx > 0:
-            self.columns[idx - 1].view.grab_focus()
-        elif direction == "right" and idx + 1 < len(self.columns):
-            nxt = self.columns[idx + 1]
-            if nxt.item_count == 0:
-                return  # never park the focus inside an empty column
-            nxt.view.grab_focus()
-            nxt.select_first()
-        elif direction == "up":
-            self.go_up()
-        self._update_status()
-
-    def _on_width_changed(self, col, width, apply_all):
-        if not apply_all:
-            return
-        # Shift-drag: every column follows and the width becomes the default.
+    # -- settings shared by every tab ----------------------------------------
+    def set_column_width(self, width, except_for=None):
         self.col_width = width
-        for other in self.columns:
-            if other is not col:
-                other.sw.set_size_request(width, -1)
-        if self.preview is not None:
-            self.preview.set_width(width + PREVIEW_EXTRA)
+        for tab in self.tabs:
+            tab.apply_column_width(width, except_for)
 
     def _on_toggle_hidden(self, action, value):
         action.set_state(value)
         self.show_hidden = value.get_boolean()
-        for col in self.columns:
-            col.set_show_hidden(self.show_hidden)
+        for tab in self.tabs:
+            for col in tab.columns:
+                col.set_show_hidden(self.show_hidden)
 
     def _on_sort_by(self, action, value):
         mode = value.get_string()
@@ -537,8 +435,9 @@ class FinchWindow(Gtk.ApplicationWindow):
         self._apply_sort()
 
     def _apply_sort(self):
-        for col in self.columns:
-            col.set_sort(self.sort_by, self.sort_reversed)
+        for tab in self.tabs:
+            for col in tab.columns:
+                col.set_sort(self.sort_by, self.sort_reversed)
 
     def _on_path_activate(self, entry):
         text = entry.get_text().strip()
@@ -624,6 +523,9 @@ class FinchWindow(Gtk.ApplicationWindow):
             item(_("Delete"), col.delete_item, "edit-delete-symbolic")
         elif gfile is not None:
             item(_("Open"), lambda: launch_default(gfile, self), "document-open-symbolic")
+            if is_dir:
+                item(_("Open in New Tab"), lambda: self.open_tab(gfile, switch=False),
+                     "tab-new-symbolic")
             item(_("Open With…"), lambda: self.open_with(gfile), "system-run-symbolic")
             menu.append(Gtk.SeparatorMenuItem())
             item(_("Rename"), col.start_rename, "document-edit-symbolic")
@@ -679,7 +581,9 @@ class FinchWindow(Gtk.ApplicationWindow):
             "show_hidden": self.show_hidden,
             "sort_by": self.sort_by, "sort_reversed": self.sort_reversed,
             "sidebar_width": self.paned.get_position(),
-            "last_root": self.columns[0].gfile.get_uri() if self.columns else None,
+            "last_root": self.tab.root.get_uri() if self.tab and self.tab.root else None,
+            "tabs": [t.root.get_uri() for t in self.tabs if t.root is not None],
+            "current_tab": max(self.notebook.get_current_page(), 0),
         })
         save_state(self.state)
 

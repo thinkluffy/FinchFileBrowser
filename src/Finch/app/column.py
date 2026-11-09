@@ -60,6 +60,8 @@ class Column(Gtk.Box):
         "loaded": (GObject.SignalFlags.RUN_FIRST, None, ()),
         # (files, directory, move?) dropped onto this column
         "files-dropped": (GObject.SignalFlags.RUN_FIRST, None, (object, object, bool)),
+        # a folder row was middle-clicked
+        "open-new-tab": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
     }
 
     def __init__(self, gfile, width, show_hidden, sort_by="name", sort_reversed=False):
@@ -627,6 +629,12 @@ class Column(Gtk.Box):
                 self._press = (hit[0], event.x, event.y)
                 return True
             return False
+        if event.button == 2:
+            # Middle-click on a folder: open it in a new tab, leave the
+            # selection alone.
+            if hit is not None and self.store[hit[0]][C_ISDIR]:
+                self.emit("open-new-tab", self.store[hit[0]][C_FILE])
+            return True
         if event.button != 3:
             return False
         if hit is None:

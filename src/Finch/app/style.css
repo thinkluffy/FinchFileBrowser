@@ -70,3 +70,9 @@ treeview.view.inactive:selected:focus {
 menu > menuitem, menu menuitem check, menu menuitem radio { transition: none; }
 /* Copy / move progress in the status line: as thin as the usage bars. */
 progressbar.transfer-progress trough, progressbar.transfer-progress progress { min-height: 4px; }
+/* Tab strip: compact labels, a small close button that only stands out on hover. */
+notebook > header { padding: 0; }
+notebook > header tab { padding: 2px 6px 2px 10px; min-height: 0; }
+notebook > header tab button.tab-close { min-width: 16px; min-height: 16px; padding: 1px;
+                                         margin: 0; opacity: 0.6; }
+notebook > header tab button.tab-close:hover { opacity: 1; }

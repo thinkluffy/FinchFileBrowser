@@ -28,7 +28,12 @@ class FinchApp(Gtk.Application):
         quit_action = Gio.SimpleAction.new("quit", None)
         quit_action.connect("activate", lambda *_args: self.quit())
         self.add_action(quit_action)
-        self.set_accels_for_action("app.quit", ["<Primary>q", "<Primary>w"])
+        self.set_accels_for_action("app.quit", ["<Primary>q"])
+        self.set_accels_for_action("win.new-tab", ["<Primary>t"])
+        self.set_accels_for_action("win.close-tab", ["<Primary>w"])
+        self.set_accels_for_action("win.next-tab", ["<Primary>Page_Down", "<Primary>Tab"])
+        self.set_accels_for_action("win.prev-tab", ["<Primary>Page_Up", "<Primary><Shift>Tab",
+                                                    "<Primary><Shift>ISO_Left_Tab"])
         self.set_accels_for_action("win.up", ["<Alt>Up"])
         self.set_accels_for_action("win.back", ["<Alt>Left"])
         self.set_accels_for_action("win.forward", ["<Alt>Right"])
@@ -36,7 +41,7 @@ class FinchApp(Gtk.Application):
         self.set_accels_for_action("win.reload", ["F5", "<Primary>r"])
         self.set_accels_for_action("win.focus-path", ["<Primary>l"])
         self.set_accels_for_action("win.show-hidden", ["<Primary>h"])
-        self.set_accels_for_action("win.open-terminal", ["<Primary>t"])
+        self.set_accels_for_action("win.open-terminal", ["F4"])
         self.set_accels_for_action("win.cut", ["<Primary>x"])
         self.set_accels_for_action("win.copy", ["<Primary>c"])
         self.set_accels_for_action("win.paste", ["<Primary>v"])
@@ -47,23 +52,40 @@ class FinchApp(Gtk.Application):
             win.save_window_state()
         Gtk.Application.do_shutdown(self)
 
+    @staticmethod
+    def _folder(gfile):
+        """`gfile` if it is a folder that can be read, its parent if it is a
+        file, else None."""
+        try:
+            if gfile.query_info("standard::type", Gio.FileQueryInfoFlags.NONE,
+                                None).get_file_type() != Gio.FileType.DIRECTORY:
+                gfile = gfile.get_parent()
+        except GLib.Error:
+            return None
+        if gfile is not None and gfile.get_path():
+            gfile = Gio.File.new_for_path(gfile.get_path())   # normalise "dir/" → "dir"
+        return gfile
+
     def do_command_line(self, cmdline):
         args = cmdline.get_arguments()[1:]
+        home = Gio.File.new_for_path(GLib.get_home_dir())
+        extra, current = [], 0
         if args:
-            root = Gio.File.new_for_commandline_arg_and_cwd(args[0], cmdline.get_cwd())
-        elif self.state.get("last_root"):
-            root = Gio.File.new_for_uri(self.state["last_root"])
+            # Every argument is a tab; the first is the current one.
+            roots = [self._folder(Gio.File.new_for_commandline_arg_and_cwd(a, cmdline.get_cwd()))
+                     for a in args]
+            roots = [r for r in roots if r is not None] or [home]
         else:
-            root = Gio.File.new_for_path(GLib.get_home_dir())
-        try:
-            if root.query_info("standard::type", Gio.FileQueryInfoFlags.NONE,
-                               None).get_file_type() != Gio.FileType.DIRECTORY:
-                root = root.get_parent() or Gio.File.new_for_path(GLib.get_home_dir())
-        except GLib.Error:
-            root = Gio.File.new_for_path(GLib.get_home_dir())
-        if root.get_path():
-            root = Gio.File.new_for_path(root.get_path())   # normalise "dir/" → "dir"
-        win = FinchWindow(self, root, self.state)
+            # The tabs that were open last time (or the single last root).
+            uris = self.state.get("tabs") or [self.state.get("last_root")]
+            roots = [self._folder(Gio.File.new_for_uri(u)) for u in uris if u]
+            roots = [r for r in roots if r is not None] or [home]
+            current = min(int(self.state.get("current_tab", 0)), len(roots) - 1)
+        win = FinchWindow(self, roots[0], self.state)
+        for root in roots[1:]:
+            win.open_tab(root, switch=False)
+        if current:
+            win.notebook.set_current_page(current)
         if win.columns:
             win.columns[0].view.grab_focus()
         win.show_all()
