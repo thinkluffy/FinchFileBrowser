@@ -52,6 +52,7 @@ src/Finch/                  the program
   app/archive.py            Compress… / Extract Here: zip, 7z, tar.* (Python or the 7z program)
   app/preview.py            the right-most file preview pane
   app/thumbs.py             preview caches: in-process LRU + ~/.cache/thumbnails (shared with Nemo); grid thumbnails
+  app/pathbar.py            location bar: folder buttons or a text entry, Nemo style
   app/sidebar.py            sidebar: section headings, device usage bars
   app/tab.py                one tab: the strip of columns, its preview and history
   app/window.py             main window: title bar, tabs, context menu, status, file jobs

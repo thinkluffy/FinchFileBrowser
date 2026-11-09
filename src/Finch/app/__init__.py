@@ -12,6 +12,7 @@ Package layout:
     clipboard    copy / cut / paste through the system clipboard
     preview      the right-most file preview pane
     thumbs       preview caches: in-process LRU and the freedesktop thumbnail cache
+    pathbar      the location bar: folder buttons or a text entry (PathBar)
     sidebar      GtkPlacesSidebar with section titles and device usage bars
     window       the main window: tool bar, navigation, context menu
     application  Gtk.Application, CSS and accelerators; `main()` lives here

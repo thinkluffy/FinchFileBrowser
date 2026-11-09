@@ -6,6 +6,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import DEFAULT_COL_WIDTH, VERSION, _, clipboard, ngettext
 from .column import SORT_MODES, drop_action
+from .pathbar import PathBar
 from .sidebar import PlacesSidebar
 from .archive import (Archive, Extract, SevenZip, ask_archive, ask_password,
                       is_archive, needs_sevenzip)
@@ -69,7 +70,7 @@ class FinchWindow(Gtk.ApplicationWindow):
 
         # Title bar in two rows, Finder style: a normal-height header bar with
         # the folder name and the window buttons, then a toolbar row below it
-        # with the up button, the editable path and the menu.
+        # with the up button, the path bar and the menu.
         # Both rows are header bars so the theme paints them alike; style.css
         # removes the border between them.
         self.header = Gtk.HeaderBar(show_close_button=True, has_subtitle=False)
@@ -91,9 +92,14 @@ class FinchWindow(Gtk.ApplicationWindow):
             btn.set_action_name(action)
             nav.pack_start(btn, False, False, 0)
         toolbar.pack_start(nav)
-        self.path_entry = Gtk.Entry(hexpand=True, placeholder_text=_("Path"))
-        self.path_entry.connect("activate", self._on_path_activate)
-        toolbar.set_custom_title(self.path_entry)
+        # The path as folder buttons or, toggled, as text (the toggle's
+        # state is kept between runs; Ctrl+L shows the text just once).
+        self.pathbar = PathBar(entry_mode=bool(state.get("location_entry", False)))
+        self.path_entry = self.pathbar.entry
+        self.pathbar.connect("path-entered", self._on_path_entered)
+        self.pathbar.connect("crumb-clicked", self._on_crumb_clicked)
+        self.pathbar.connect("entry-left", lambda bar: self._focus_files())
+        toolbar.set_custom_title(self.pathbar)
 
         menu = Gio.Menu()
         tabs = Gio.Menu()
@@ -159,7 +165,7 @@ class FinchWindow(Gtk.ApplicationWindow):
         self._back_action = self._add_action("back", self.go_back)
         self._forward_action = self._add_action("forward", self.go_forward)
         self._add_action("reload", self.reload_all)
-        self._add_action("focus-path", lambda *_args: self.path_entry.grab_focus())
+        self._add_action("focus-path", lambda *_args: self.pathbar.show_entry())
         self._add_action("open-nemo", lambda *_args: self.open_in_nemo(self.current_dir()))
         self._terminal_action = self._add_action(
             "open-terminal", lambda *_args: self.open_terminal(self.current_dir()))
@@ -438,9 +444,7 @@ class FinchWindow(Gtk.ApplicationWindow):
 
     def _show_location(self, tab):
         gfile = tab.location
-        text = gfile.get_parse_name()
-        self.path_entry.set_text(text)
-        self.path_entry.set_position(-1)
+        self.pathbar.set_location(gfile)
         name = location_name(gfile)
         self.header.set_title(name)
         self.set_title(name)
@@ -544,10 +548,18 @@ class FinchWindow(Gtk.ApplicationWindow):
         if self.tab is not None:
             self.tab.focus()
 
-    def _on_path_activate(self, entry):
-        text = entry.get_text().strip()
-        if not text:
-            return
+    def _focus_files(self):
+        if self.columns:
+            self.columns[0].view.grab_focus()
+
+    def _on_crumb_clicked(self, bar, gfile, new_tab):
+        if new_tab:
+            self.open_tab(gfile, switch=False)
+        else:
+            self.set_root(gfile)
+            self._focus_files()
+
+    def _on_path_entered(self, bar, text):
         gfile = Gio.File.new_for_commandline_arg(os.path.expanduser(text))
         try:
             info = gfile.query_info("standard::type", Gio.FileQueryInfoFlags.NONE, None)
@@ -558,8 +570,7 @@ class FinchWindow(Gtk.ApplicationWindow):
             self.set_root(gfile)
         else:
             self.set_root(gfile.get_parent() or gfile, select=gfile)
-        if self.columns:
-            self.columns[0].view.grab_focus()
+        self._focus_files()
 
     def _on_context_menu(self, col, gfile, info, event):
         menu = Gtk.Menu()
@@ -686,6 +697,7 @@ class FinchWindow(Gtk.ApplicationWindow):
             "show_hidden": self.show_hidden,
             "sort_by": self.sort_by, "sort_reversed": self.sort_reversed,
             "view_mode": self.view_mode,
+            "location_entry": self.pathbar.entry_mode,
             "sidebar_width": self.paned.get_position(),
         })
         # Where the user was is deliberately not kept: every start is home.
