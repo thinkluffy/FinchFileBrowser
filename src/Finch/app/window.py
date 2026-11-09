@@ -4,7 +4,7 @@ import subprocess
 
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from . import DEFAULT_COL_WIDTH, _, clipboard, ngettext
+from . import DEFAULT_COL_WIDTH, VERSION, _, clipboard, ngettext
 from .column import SORT_MODES, drop_action
 from .sidebar import PlacesSidebar
 from .archive import (Archive, Extract, SevenZip, ask_archive, ask_password,
@@ -14,7 +14,42 @@ from .transfer import Transfer
 from .util import confirm, launch_default, save_state, show_error
 
 
+VIEW_MODES = ("columns", "grid")
+
+
+class TabStrip(Gtk.Notebook):
+    """Notebook that takes a dragged tab only on its strip of tab labels.
+
+    GtkNotebook accepts a tab of its group anywhere on itself, so a tab
+    dropped on the page below the strip would just be re-inserted; here such
+    a drop is refused, the drag ends with no target and GTK asks for a new
+    window ("create-window"), like a drop outside every window."""
+
+    TAB_TARGET = "GTK_NOTEBOOK_TAB"
+
+    def over_strip(self, x, y):
+        """Is the point (x, y), in this widget's coordinates, on the tab
+        strip rather than on the current page?"""
+        if not self.get_show_tabs():
+            return False
+        page = self.get_nth_page(self.get_current_page())
+        if page is None:
+            return True
+        top = page.translate_coordinates(self, 0, 0)
+        return top is None or y < top[1]
+
+    def do_drag_motion(self, ctx, x, y, time):
+        if (any(t.name() == self.TAB_TARGET for t in ctx.list_targets())
+                and not self.over_strip(x, y)):
+            Gdk.drag_status(ctx, 0, time)
+            return True
+        return Gtk.Notebook.do_drag_motion(self, ctx, x, y, time)
+
+
 class FinchWindow(Gtk.ApplicationWindow):
+    """`root`: the folder of the first tab, or None for a window that is
+    about to receive a tab dragged out of another one."""
+
     def __init__(self, app, root, state):
         super().__init__(application=app, title="Finch")
         self.get_style_context().add_class("finch-main")
@@ -25,6 +60,9 @@ class FinchWindow(Gtk.ApplicationWindow):
         if self.sort_by not in SORT_MODES:
             self.sort_by = "name"
         self.sort_reversed = bool(state.get("sort_reversed", False))
+        self.view_mode = state.get("view_mode", "columns")
+        if self.view_mode not in VIEW_MODES:
+            self.view_mode = "columns"
         self.set_default_size(int(state.get("width", 1100)),
                               int(state.get("height", 650)))
         self.set_icon_name("system-file-manager")
@@ -83,6 +121,9 @@ class FinchWindow(Gtk.ApplicationWindow):
         view.append(_("Open in Nemo"), "win.open-nemo")
         view.append(_("Open in Terminal"), "win.open-terminal")
         menu.append_section(None, view)
+        about = Gio.Menu()
+        about.append(_("About Finch"), "win.about")
+        menu.append_section(None, about)
         new_folder = Gtk.Button.new_from_icon_name("folder-new-symbolic", Gtk.IconSize.BUTTON)
         new_folder.set_tooltip_text(_("New Folder (Ctrl+Shift+N)"))
         new_folder.set_action_name("win.new-folder")
@@ -100,6 +141,18 @@ class FinchWindow(Gtk.ApplicationWindow):
                                                   Gtk.IconSize.BUTTON))
         toolbar.pack_end(menu_btn)
         toolbar.pack_end(new_folder)
+        # Columns / icons: two linked toggles on the one stateful action.
+        views = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        views.get_style_context().add_class("linked")
+        for mode, icon, tip in (("columns", "view-list-symbolic", _("Columns (Ctrl+1)")),
+                                ("grid", "view-grid-symbolic", _("Icons (Ctrl+2)"))):
+            btn = Gtk.ToggleButton()
+            btn.add(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.BUTTON))
+            btn.set_tooltip_text(tip)
+            btn.set_action_name("win.view-mode")
+            btn.set_action_target_value(GLib.Variant.new_string(mode))
+            views.pack_start(btn, False, False, 0)
+        toolbar.pack_end(views)
 
         # actions
         self._up_action = self._add_action("up", self.go_up)
@@ -115,6 +168,7 @@ class FinchWindow(Gtk.ApplicationWindow):
         self._add_action("copy", self.copy_selection)
         self._paste_action = self._add_action("paste", self.paste)
         self._add_action("new-tab", lambda: self.open_tab(self.current_dir() or self.tab.root))
+        self._add_action("about", self.show_about)
         self._add_action("close-tab", self.close_tab)
         self._add_action("next-tab", lambda: self._cycle_tab(1))
         self._add_action("prev-tab", lambda: self._cycle_tab(-1))
@@ -133,6 +187,10 @@ class FinchWindow(Gtk.ApplicationWindow):
             "sort-reversed", None, GLib.Variant.new_boolean(self.sort_reversed))
         sort_rev.connect("change-state", self._on_sort_reversed)
         self.add_action(sort_rev)
+        view_mode = Gio.SimpleAction.new_stateful(
+            "view-mode", GLib.VariantType.new("s"), GLib.Variant.new_string(self.view_mode))
+        view_mode.connect("change-state", self._on_view_mode)
+        self.add_action(view_mode)
 
         # body
         self.sidebar = PlacesSidebar()
@@ -150,9 +208,14 @@ class FinchWindow(Gtk.ApplicationWindow):
                              self.drop_files(list(files), dest, action == Gdk.DragAction.MOVE))
 
         # Tabs: the strip of tab labels only appears once there are two.
-        self.notebook = Gtk.Notebook(show_border=False, scrollable=True, show_tabs=False)
+        # Tabs can be dragged between Finch windows (same group name, onto
+        # the strip) and anywhere else, which makes a new window for them.
+        self.notebook = TabStrip(show_border=False, scrollable=True, show_tabs=False)
+        self.notebook.set_group_name("finch-tabs")
         self.notebook.connect("switch-page", self._on_tab_switched)
-        self.notebook.connect("page-removed", lambda *_args: self._update_tab_bar())
+        self.notebook.connect("page-added", self._on_page_added)
+        self.notebook.connect("page-removed", self._on_page_removed)
+        self.notebook.connect("create-window", self._on_tab_detached)
 
         # Status line: item counts on the left; while files are being copied
         # or moved, a progress bar with a cancel button on the right.
@@ -192,7 +255,8 @@ class FinchWindow(Gtk.ApplicationWindow):
         self.add(paned)
 
         self.connect("delete-event", self._on_delete)
-        self.open_tab(root)
+        if root is not None:
+            self.open_tab(root)
 
     # -- helpers -------------------------------------------------------------
     def _add_action(self, name, cb):
@@ -250,16 +314,12 @@ class FinchWindow(Gtk.ApplicationWindow):
         close = Gtk.Button.new_from_icon_name("window-close-symbolic", Gtk.IconSize.MENU)
         close.set_relief(Gtk.ReliefStyle.NONE)
         close.get_style_context().add_class("tab-close")
-        close.connect("clicked", lambda *_args: self.close_tab(tab))
+        # tab.win, not self: the label travels with a tab dragged elsewhere.
+        close.connect("clicked", lambda *_args: tab.win.close_tab(tab))
         label.pack_start(close, False, False, 0)
         label.show_all()
         tab.show_all()
-        page = self.notebook.append_page(tab, label)
-        self.notebook.set_tab_reorderable(tab, True)
-        # Equal-width tabs across the whole strip, Finder-style.
-        self.notebook.child_set_property(tab, "tab-expand", True)
-        self.notebook.child_set_property(tab, "tab-fill", True)
-        self._update_tab_bar()
+        page = self.notebook.append_page(tab, label)      # the rest: _on_page_added
         if switch:
             self.notebook.set_current_page(page)
             tab.focus()
@@ -288,6 +348,40 @@ class FinchWindow(Gtk.ApplicationWindow):
 
     def _update_tab_bar(self):
         self.notebook.set_show_tabs(len(self.tabs) > 1)
+
+    def _on_page_added(self, notebook, tab, page):
+        """A tab arrived: new, or dragged in from another window."""
+        tab.win = self
+        notebook.set_tab_reorderable(tab, True)
+        notebook.set_tab_detachable(tab, True)
+        # Equal-width tabs across the whole strip, Finder-style.
+        notebook.child_set_property(tab, "tab-expand", True)
+        notebook.child_set_property(tab, "tab-fill", True)
+        self._update_tab_bar()
+        if tab is self.tab:
+            self._show_location(tab)
+            GLib.idle_add(self._update_status)
+
+    def _on_page_removed(self, notebook, tab, page):
+        self._update_tab_bar()
+        if not self.tabs and not self.in_destruction():
+            # The last tab was dragged away: nothing is left to show. (After
+            # the drop is over: GTK is still using this notebook for it.)
+            GLib.idle_add(self._close_empty)
+
+    def _close_empty(self):
+        if not self.tabs and not self.in_destruction():
+            self.save_window_state()
+            self.destroy()
+        return False
+
+    def _on_tab_detached(self, notebook, tab, x, y):
+        """A tab was dropped outside every notebook: a new window takes it
+        (GTK moves the page into the notebook returned)."""
+        win = FinchWindow(self.get_application(), None, self.state)
+        win.move(max(x - 40, 0), max(y - 20, 0))
+        win.show_all()
+        return win.notebook
 
     def _on_tab_switched(self, notebook, tab, page):
         # Called before the page is current: look at `tab`, not self.tab.
@@ -439,6 +533,17 @@ class FinchWindow(Gtk.ApplicationWindow):
             for col in tab.columns:
                 col.set_sort(self.sort_by, self.sort_reversed)
 
+    def _on_view_mode(self, action, value):
+        mode = value.get_string()
+        if mode not in VIEW_MODES or mode == self.view_mode:
+            return
+        action.set_state(value)
+        self.view_mode = mode
+        for tab in self.tabs:
+            tab.set_view_mode()
+        if self.tab is not None:
+            self.tab.focus()
+
     def _on_path_activate(self, entry):
         text = entry.get_text().strip()
         if not text:
@@ -580,6 +685,7 @@ class FinchWindow(Gtk.ApplicationWindow):
             "width": w, "height": h, "column_width": self.col_width,
             "show_hidden": self.show_hidden,
             "sort_by": self.sort_by, "sort_reversed": self.sort_reversed,
+            "view_mode": self.view_mode,
             "sidebar_width": self.paned.get_position(),
         })
         # Where the user was is deliberately not kept: every start is home.
@@ -717,6 +823,20 @@ class FinchWindow(Gtk.ApplicationWindow):
             if password is not None:
                 self.extract([job.archive], job.dest_dir, password)
         self._run_next_job()
+
+    def show_about(self):
+        dlg = Gtk.AboutDialog(transient_for=self, modal=True,
+                              program_name="Finch", version=VERSION,
+                              logo_icon_name="system-file-manager",
+                              comments=_("A Finder-style column view file browser"),
+                              copyright="© 2026 DaoCheng",
+                              authors=["DaoCheng"])
+        # TRANSLATORS: credit line in the About dialog; put your name here
+        translators = _("translator-credits")
+        if translators != "translator-credits":
+            dlg.set_translator_credits(translators)
+        dlg.connect("response", lambda d, _r: d.destroy())
+        dlg.show()
 
     # -- external apps -------------------------------------------------------
     def open_with(self, gfile):

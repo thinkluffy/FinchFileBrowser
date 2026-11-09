@@ -34,6 +34,8 @@ class FinchApp(Gtk.Application):
         self.set_accels_for_action("win.next-tab", ["<Primary>Page_Down", "<Primary>Tab"])
         self.set_accels_for_action("win.prev-tab", ["<Primary>Page_Up", "<Primary><Shift>Tab",
                                                     "<Primary><Shift>ISO_Left_Tab"])
+        self.set_accels_for_action("win.view-mode::columns", ["<Primary>1"])
+        self.set_accels_for_action("win.view-mode::grid", ["<Primary>2"])
         self.set_accels_for_action("win.up", ["<Alt>Up"])
         self.set_accels_for_action("win.back", ["<Alt>Left"])
         self.set_accels_for_action("win.forward", ["<Alt>Right"])

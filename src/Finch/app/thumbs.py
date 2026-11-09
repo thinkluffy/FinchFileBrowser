@@ -12,6 +12,9 @@ a placeholder to show while the full rendering is made.
 
 `meta` dicts use the keys "dims" ((width, height)), "pages" and "duration"
 (seconds); only the known ones are present.
+
+Thumbnailer, at the end, serves the icon grid: small pictures made on a
+worker thread from the same caches (and, for images, from the file).
 """
 import hashlib
 import os
@@ -20,6 +23,8 @@ import threading
 from collections import OrderedDict
 
 from gi.repository import GdkPixbuf, GLib
+
+from . import MAX_IMAGE_PREVIEW
 
 MEMORY_ENTRIES = 32                  # at most ~2 MB each
 # Freedesktop size names, largest first, with the bound of their longer side.
@@ -106,12 +111,12 @@ def disk_lookup(uri, mtime):
     return None
 
 
-def disk_save(uri, mtime, size, pixbuf, meta):
-    """Store `pixbuf` as the xx-large thumbnail of `uri`, with the facts in
-    `meta`, the way the spec wants it: private directory and file, written
-    whole before it appears under its name. Failures are silent: a cache
-    that cannot be written is no worse than none."""
-    bound = dict(SIZES)[WRITE_SIZE]
+def disk_save(uri, mtime, size, pixbuf, meta, size_name=WRITE_SIZE):
+    """Store `pixbuf` as the `size_name` thumbnail of `uri`, with the facts
+    in `meta`, the way the spec wants it: private directory and file,
+    written whole before it appears under its name. Failures are silent: a
+    cache that cannot be written is no worse than none."""
+    bound = dict(SIZES)[size_name]
     if max(pixbuf.get_width(), pixbuf.get_height()) > bound:
         return False
     keys = ["tEXt::Thumb::URI", "tEXt::Thumb::MTime", "tEXt::Thumb::Size", "tEXt::Software"]
@@ -125,7 +130,7 @@ def disk_save(uri, mtime, size, pixbuf, meta):
     if "duration" in meta:
         keys.append("tEXt::Thumb::Movie::Length")
         values.append(str(int(meta["duration"])))
-    directory = os.path.join(_cache_dir(), WRITE_SIZE)
+    directory = os.path.join(_cache_dir(), size_name)
     try:
         os.makedirs(directory, 0o700, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=directory, suffix=".png")   # mode 0600
@@ -139,3 +144,111 @@ def disk_save(uri, mtime, size, pixbuf, meta):
     except OSError:
         return False
     return True
+
+
+# -- the icon grid's thumbnails ------------------------------------------------
+THUMB_ENTRIES = 4000                 # ~16 kB each at 64 px
+GRID_WRITE_SIZE = "large"            # images rendered for the grid are kept at 256 px
+_thumbs = OrderedDict()              # stamp -> small pixbuf, or None (nothing to show)
+_thumbs_lock = threading.Lock()
+
+
+def thumb_get(key):
+    """(known?, pixbuf) for a grid thumbnail: known with None means the file
+    has no picture, so the icon stands."""
+    with _thumbs_lock:
+        if key not in _thumbs:
+            return False, None
+        _thumbs.move_to_end(key)
+        return True, _thumbs[key]
+
+
+def _thumb_put(key, pixbuf):
+    with _thumbs_lock:
+        _thumbs[key] = pixbuf
+        _thumbs.move_to_end(key)
+        while len(_thumbs) > THUMB_ENTRIES:
+            _thumbs.popitem(last=False)
+
+
+def _fit(pixbuf, bound):
+    """`pixbuf` scaled down to fit a `bound` square, never up."""
+    w, h = pixbuf.get_width(), pixbuf.get_height()
+    scale = min(bound / w, bound / h, 1.0)
+    if scale >= 1.0:
+        return pixbuf
+    return pixbuf.scale_simple(max(1, round(w * scale)), max(1, round(h * scale)),
+                               GdkPixbuf.InterpType.BILINEAR)
+
+
+def _grid_picture(gfile, path, ctype, mtime, size):
+    """A picture of the file for the grid: any cached thumbnail, else for an
+    image a fresh rendering (kept in the disk cache for next time). PDFs and
+    videos are only shown from the cache: rendering them is slow, and the
+    preview pane writes an entry the first time one is looked at."""
+    uri = gfile.get_uri()
+    cached = disk_lookup(uri, mtime)
+    if cached is not None:
+        return cached[0]
+    if not (ctype.startswith("image/") and path and size <= MAX_IMAGE_PREVIEW):
+        return None
+    bound = dict(SIZES)[GRID_WRITE_SIZE]
+    try:
+        pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, bound, bound, True)
+    except GLib.Error:
+        return None
+    pixbuf = pixbuf.apply_embedded_orientation() or pixbuf
+    _fmt, width, height = GdkPixbuf.Pixbuf.get_file_info(path)
+    meta = {"dims": (width, height)} if width > 0 and height > 0 else {}
+    disk_save(uri, mtime, size, pixbuf, meta, GRID_WRITE_SIZE)
+    return pixbuf
+
+
+class Thumbnailer:
+    """Makes grid thumbnails of `bound` px on one worker thread. `want()`
+    replaces the queue with the files now in view, so scrolling past a
+    thousand pictures never leaves a thousand renderings queued; each
+    finished one is announced with `on_ready()` on the main loop."""
+
+    def __init__(self, bound, on_ready):
+        self.bound = bound
+        self._on_ready = on_ready
+        self._cond = threading.Condition()
+        self._wanted = []
+        self._thread = None
+        self._stopped = False
+
+    def want(self, requests):
+        """`requests`: (key, gfile, path, ctype, mtime, size) tuples, first
+        wanted first. Only what is not known yet is kept."""
+        with self._cond:
+            if self._stopped:
+                return
+            self._wanted = [r for r in requests if not thumb_get(r[0])[0]]
+            if self._wanted and self._thread is None:
+                self._thread = threading.Thread(target=self._work, daemon=True)
+                self._thread.start()
+            self._cond.notify()
+
+    def stop(self):
+        with self._cond:
+            self._stopped = True
+            self._wanted = []
+            self._cond.notify()
+
+    def _work(self):
+        while True:
+            with self._cond:
+                while not self._wanted and not self._stopped:
+                    self._cond.wait()
+                if self._stopped:
+                    return
+                key, gfile, path, ctype, mtime, size = self._wanted.pop(0)
+            if thumb_get(key)[0]:
+                continue
+            try:
+                picture = _grid_picture(gfile, path, ctype, mtime, size)
+            except GLib.Error:
+                picture = None
+            _thumb_put(key, _fit(picture, self.bound) if picture is not None else None)
+            GLib.idle_add(self._on_ready)

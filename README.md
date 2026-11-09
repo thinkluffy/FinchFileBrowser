@@ -2,7 +2,7 @@
 
 A Finder-style Miller-column file browser for Linux, written in Python with
 GTK 3 and made for Linux Mint Cinnamon. It is for **browsing, previewing and
-opening files, plus sorting, multi-selection, renaming, copy / cut / paste, drag and
+opening files, plus an icon view, sorting, multi-selection, renaming, copy / cut / paste, drag and
 drop, compressing / extracting, tabs and the trash**; anything
 more involved is left to Nemo. See [doc/manual.md](doc/manual.md) for how to use it (in Chinese).
 
@@ -44,12 +44,14 @@ src/Finch/                  the program
   finch.py                  launcher for running from source
   app/__init__.py           constants, translation loading
   app/util.py               sorting, state file, dialogs, launching other apps
-  app/column.py             one directory column: loading, rename, trash, keys
+  app/listing.py            what a directory listing does whatever it looks like: loading, rename, trash, keys, DnD
+  app/column.py             the Miller-column look: a list with a drag handle
+  app/grid.py               the icon look: a hand-drawn grid (GtkIconView is too slow for big folders)
   app/clipboard.py          copy / cut / paste through the system clipboard (Nemo-compatible)
   app/transfer.py           copy / move jobs: background thread, progress, cancel
   app/archive.py            Compress… / Extract Here: zip, 7z, tar.* (Python or the 7z program)
   app/preview.py            the right-most file preview pane
-  app/thumbs.py             preview caches: in-process LRU + ~/.cache/thumbnails (shared with Nemo)
+  app/thumbs.py             preview caches: in-process LRU + ~/.cache/thumbnails (shared with Nemo); grid thumbnails
   app/sidebar.py            sidebar: section headings, device usage bars
   app/tab.py                one tab: the strip of columns, its preview and history
   app/window.py             main window: title bar, tabs, context menu, status, file jobs

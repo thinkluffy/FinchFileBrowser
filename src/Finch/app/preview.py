@@ -321,7 +321,8 @@ class Preview(Gtk.Box):
         self.name.set_text(info.get_display_name() or info.get_name())
         rows = [(_("Kind"), Gio.content_type_get_description(ctype) or ctype)]
         rows.extend((label, "…") for label in pending)
-        rows.append((_("Size"), GLib.format_size(size)))
+        if info.get_file_type() != Gio.FileType.DIRECTORY:   # a folder's size says nothing
+            rows.append((_("Size"), GLib.format_size(size)))
         mtime = info.get_modification_date_time()
         if mtime is not None:
             rows.append((_("Modified"), mtime.to_local().format("%Y-%m-%d %H:%M")))

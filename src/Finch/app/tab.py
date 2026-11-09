@@ -5,11 +5,17 @@ operations; everything that depends on *where* the user is lives here, so
 that several tabs can each be somewhere else. The tab calls back into the
 window for what it does not own: column settings (width, hidden files,
 sort), the context menu, drops, and to tell it the location changed.
+
+Two looks, the window's `view_mode`: "columns" (Miller columns, each
+folder selected opens the next one to its right, a file the preview) and
+"grid" (one icon grid of the root folder filling the strip; a
+double-clicked folder becomes the root; no preview pane).
 """
 from gi.repository import Gio, GLib, Gtk, Pango
 
 from . import _
 from .column import HANDLE_WIDTH, Column
+from .grid import Grid
 from .preview import Preview
 from .util import launch_default
 
@@ -42,6 +48,8 @@ def location_name(gfile):
 class Tab(Gtk.Box):
     def __init__(self, win, root):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        # The window the tab is in; the window's notebook updates it when
+        # the tab is dragged into another window.
         self.win = win
         self.columns = []
         self.preview = None
@@ -75,6 +83,10 @@ class Tab(Gtk.Box):
     @property
     def root(self):
         return self.columns[0].gfile if self.columns else None
+
+    @property
+    def grid_mode(self):
+        return self.win.view_mode == "grid"
 
     # -- queries --------------------------------------------------------------
     def focused_column(self):
@@ -117,28 +129,46 @@ class Tab(Gtk.Box):
         for col in self.columns:
             col.destroy()
         self.columns = []
-        self._remove_preview()
+        self._destroy_preview()
         self.add_column(gfile, select=_child_towards(gfile, select) if select else None,
                         focus=focus)
         self._set_location(gfile)
 
+    def set_view_mode(self):
+        """The window's view mode changed: show the same place in the new
+        look, keeping the selection where it makes sense."""
+        root = self.root
+        if root is None:
+            return
+        select = self.columns[-1].selected()[0]
+        if select is None and not self.location.equal(root):
+            select = self.location
+        self.set_root(root, select=select, record=False)
+
     def add_column(self, gfile, select=None, focus=False):
         win = self.win
-        col = Column(gfile, win.col_width, win.show_hidden, win.sort_by, win.sort_reversed)
+        if self.grid_mode:
+            col = Grid(gfile, win.show_hidden, win.sort_by, win.sort_reversed)
+        else:
+            col = Column(gfile, win.col_width, win.show_hidden, win.sort_by, win.sort_reversed)
         col.connect("item-selected", self._on_item_selected)
         col.connect("selection-changed", self._on_selection_changed)
         col.connect("item-activated", self._on_item_activated)
         col.connect("width-changed", self._on_width_changed)
         col.connect("key-nav", self._on_key_nav)
-        col.connect("context-menu", win._on_context_menu)
-        col.connect("open-new-tab", lambda c, g: win.open_tab(g, switch=False))
-        col.connect("loaded", lambda *_args: win._update_status())
-        col.connect("files-dropped", lambda c, files, dest, move: win.drop_files(files, dest, move))
-        self.colbox.pack_start(col, False, False, 0)
+        # Through self.win at call time: a tab dragged into another window
+        # belongs to that window from then on.
+        col.connect("context-menu", self._on_context_menu)
+        col.connect("open-new-tab", lambda c, g: self.win.open_tab(g, switch=False))
+        col.connect("loaded", lambda *_args: self.win._update_status())
+        col.connect("files-dropped",
+                    lambda c, files, dest, move: self.win.drop_files(files, dest, move))
+        self.colbox.pack_start(col, self.grid_mode, True, 0)
         col.show_all()
         self.columns.append(col)
         col.load(select=select, focus=focus)
-        self._scroll_to_end_when_allocated(col)
+        if not self.grid_mode:
+            self._scroll_to_end_when_allocated(col)
         return col
 
     def truncate_after(self, col):
@@ -190,10 +220,13 @@ class Tab(Gtk.Box):
         self.win._on_location_changed(self)
 
     # -- preview and layout ----------------------------------------------------
-    def _remove_preview(self):
+    def _destroy_preview(self):
         if self.preview is not None:
             self.preview.destroy()
             self.preview = None
+
+    def _remove_preview(self):
+        self._destroy_preview()
 
     def show_preview(self, fill):
         """Put a new preview pane at the right end of the strip and `fill` it."""
@@ -221,7 +254,7 @@ class Tab(Gtk.Box):
 
     def _on_strip_allocated(self, *_args):
         self.fit_preview()
-        if self._at_end:
+        if self._at_end and not self.grid_mode:
             GLib.idle_add(self._scroll_to_end)
 
     def _on_strip_scrolled(self, adj):
@@ -240,6 +273,12 @@ class Tab(Gtk.Box):
 
     # -- column signals --------------------------------------------------------
     def _on_item_selected(self, col, gfile, info):
+        if self.grid_mode:
+            # The grid never opens anything beside itself: selecting only
+            # feeds the status line, the location stays the folder.
+            self._target = None
+            self.win._update_status()
+            return
         self.truncate_after(col)
         # Are we still re-opening columns towards a history entry?
         target, nxt = self._target, None
@@ -272,17 +311,23 @@ class Tab(Gtk.Box):
     def _on_selection_changed(self, col, gfiles, infos):
         """Several items selected in `col`: nothing opens to the right but a
         summary of them, and the location history is left alone."""
-        self.truncate_after(col)
         self._target = None
-        self.show_preview(lambda pv: pv.set_files(gfiles, infos))
-        self._set_location(col.gfile)
+        if not self.grid_mode:
+            self.truncate_after(col)
+            self.show_preview(lambda pv: pv.set_files(gfiles, infos))
+            self._set_location(col.gfile)
         self.win._update_status()
 
     def _on_item_activated(self, col, gfile, info):
-        if info.get_file_type() == Gio.FileType.DIRECTORY:
-            self._on_key_nav(col, "right")
-        else:
+        if info.get_file_type() != Gio.FileType.DIRECTORY:
             launch_default(gfile, self.win)
+        elif self.grid_mode:
+            self.set_root(gfile, focus=True)
+        else:
+            self._on_key_nav(col, "right")
+
+    def _on_context_menu(self, col, gfile, info, event):
+        self.win._on_context_menu(col, gfile, info, event)
 
     def _on_key_nav(self, col, direction):
         idx = self.columns.index(col)
@@ -307,7 +352,7 @@ class Tab(Gtk.Box):
     def apply_column_width(self, width, except_for=None):
         for col in self.columns:
             if col is not except_for:
-                col.sw.set_size_request(width, -1)
+                col.set_width(width)
         if self.preview is not None:
             self.preview.set_width(width + HANDLE_WIDTH)
 

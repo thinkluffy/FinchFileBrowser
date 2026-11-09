@@ -6,7 +6,9 @@ Anything more involved is left to Nemo.
 
 Package layout:
     util         small helpers: sorting, state file, dialogs, launching
-    column       one directory listing (ListView / Column)
+    listing      what a directory listing does whatever it looks like (Listing)
+    column       the Miller-column look: a list with a drag handle (Column)
+    grid         the icon look: a hand-drawn grid (Grid)
     clipboard    copy / cut / paste through the system clipboard
     preview      the right-most file preview pane
     thumbs       preview caches: in-process LRU and the freedesktop thumbnail cache
@@ -27,6 +29,7 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import GLib  # noqa: E402
 
 APP_ID = "daocheng.Finch"
+VERSION = "0.9.0"
 GLib.set_prgname("finch")       # WM_CLASS "finch", matched by StartupWMClass
 TEXT_DOMAIN = "finch"
 
