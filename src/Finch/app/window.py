@@ -12,7 +12,7 @@ from .archive import (Archive, Extract, SevenZip, ask_archive, ask_password,
                       is_archive, needs_sevenzip)
 from .tab import Tab, location_name
 from .transfer import Transfer
-from .util import confirm, launch_default, save_state, show_error
+from .util import confirm, launch_default, open_label, save_state, show_error
 
 
 VIEW_MODES = ("columns", "grid")
@@ -591,12 +591,19 @@ class FinchWindow(Gtk.ApplicationWindow):
         def item(label, cb, icon):
             # ImageMenuItem is deprecated but still the one widget that keeps
             # a 16 px icon in front of the label whatever the theme setting.
+            # `icon`: an icon name, or a GIcon (the opening application's).
             mi = Gtk.ImageMenuItem(label=label)
-            mi.set_image(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.MENU))
+            if isinstance(icon, str):
+                icon = Gio.ThemedIcon.new(icon)
+            mi.set_image(Gtk.Image.new_from_gicon(icon, Gtk.IconSize.MENU))
             mi.set_always_show_image(True)
             mi.connect("activate", lambda *_args: cb())
             menu.append(mi)
             return mi
+
+        def open_item(infos, cb):
+            label, icon = open_label(infos)
+            return label, cb, icon
 
         def paste(dest):
             mi = item(_("Paste"), lambda: self.paste(dest), "edit-paste-symbolic")
@@ -605,13 +612,13 @@ class FinchWindow(Gtk.ApplicationWindow):
         if col.in_trash():
             # Trash: items can only be restored or destroyed.
             if multi:
-                item(_("Open"), open_all, "document-open-symbolic")
+                item(*open_item(infos, open_all))
                 if col.is_trash_root():
                     menu.append(Gtk.SeparatorMenuItem())
                     item(_("Restore"), col.restore_item, "edit-undo-symbolic")
                     item(_("Delete Permanently"), col.delete_item, "edit-delete-symbolic")
             elif gfile is not None:
-                item(_("Open"), lambda: launch_default(gfile, self), "document-open-symbolic")
+                item(*open_item([info], lambda: launch_default(gfile, self)))
                 item(_("Open With…"), lambda: self.open_with(gfile), "system-run-symbolic")
                 if col.is_trash_root():
                     menu.append(Gtk.SeparatorMenuItem())
@@ -622,7 +629,7 @@ class FinchWindow(Gtk.ApplicationWindow):
                 if col.is_trash_root():
                     item(_("Empty Trash"), col.empty_trash, "user-trash-full-symbolic")
         elif multi:
-            item(_("Open"), open_all, "document-open-symbolic")
+            item(*open_item(infos, open_all))
             menu.append(Gtk.SeparatorMenuItem())
             item(_("Cut"), lambda: clipboard.set_files(gfiles, cut=True), "edit-cut-symbolic")
             item(_("Copy"), lambda: clipboard.set_files(gfiles), "edit-copy-symbolic")
@@ -638,7 +645,7 @@ class FinchWindow(Gtk.ApplicationWindow):
             item(_("Move to Trash"), col.trash_item, "user-trash-symbolic")
             item(_("Delete"), col.delete_item, "edit-delete-symbolic")
         elif gfile is not None:
-            item(_("Open"), lambda: launch_default(gfile, self), "document-open-symbolic")
+            item(*open_item([info], lambda: launch_default(gfile, self)))
             if is_dir:
                 item(_("Open in New Tab"), lambda: self.open_tab(gfile, switch=False),
                      "tab-new-symbolic")

@@ -49,6 +49,33 @@ def is_text_like(content_type):
     return Gio.content_type_is_a(content_type, "text/plain")
 
 
+def default_opener(infos):
+    """The application that "Open" would use for every one of the files
+    described by `infos` (their standard::content-type), or None when they
+    are directories, have no handler or would go to different programs."""
+    app = None
+    for info in infos:
+        if info.get_file_type() == Gio.FileType.DIRECTORY:
+            return None
+        ctype = info.get_content_type()
+        if not ctype:
+            return None
+        this = Gio.AppInfo.get_default_for_type(ctype, False)
+        if this is None or (app is not None and not this.equal(app)):
+            return None
+        app = this
+    return app
+
+
+def open_label(infos):
+    """The context menu's "Open" item: named after the program that will
+    open the files, the way Nemo does, when that is known; with its icon."""
+    app = default_opener(infos)
+    if app is None:
+        return _("Open"), "document-open-symbolic"
+    return _("Open With %s") % app.get_display_name(), app.get_icon() or "document-open-symbolic"
+
+
 def launch_default(gfile, widget):
     ctx = widget.get_display().get_app_launch_context()
     try:

@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: finch\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-09 22:46+0800\n"
+"POT-Creation-Date: 2026-11-10 11:56+0800\n"
 "PO-Revision-Date: 2026-11-05 18:00+0800\n"
 "Last-Translator: Yuanbin Cai\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -54,7 +54,7 @@ msgstr "“%s”有密码保护"
 msgid "Enter the password to extract it."
 msgstr "输入密码以解压。"
 
-#: ../app/archive.py:445 ../app/archive.py:467 ../app/util.py:75
+#: ../app/archive.py:445 ../app/archive.py:467 ../app/util.py:102
 msgid "_Cancel"
 msgstr "取消(_C)"
 
@@ -112,7 +112,7 @@ msgstr "空文件夹"
 msgid "Could not rename"
 msgstr "无法重命名"
 
-#: ../app/listing.py:442 ../app/window.py:746
+#: ../app/listing.py:442 ../app/window.py:753
 msgid "Could not move to trash"
 msgstr "无法移到回收站"
 
@@ -182,8 +182,7 @@ msgstr "切换路径输入框"
 msgid "File System"
 msgstr "文件系统"
 
-#: ../app/preview.py:184 ../app/window.py:608 ../app/window.py:614
-#: ../app/window.py:625 ../app/window.py:641
+#: ../app/preview.py:184 ../app/util.py:75
 msgid "Open"
 msgstr "打开"
 
@@ -246,7 +245,7 @@ msgid_plural "%d files"
 msgstr[0] "%d 个文件"
 
 #. TRANSLATORS: separator between the parts of the status line
-#: ../app/preview.py:467 ../app/window.py:506 ../app/window.py:817
+#: ../app/preview.py:467 ../app/window.py:506 ../app/window.py:824
 msgid ", "
 msgstr "，"
 
@@ -340,7 +339,12 @@ msgstr "无法把“%s”移动到它自身里面。"
 msgid "“%s” cannot be copied into itself."
 msgstr "无法把“%s”复制到它自身里面。"
 
-#: ../app/util.py:57 ../app/window.py:863
+#: ../app/util.py:76
+#, python-format
+msgid "Open With %s"
+msgstr "用 %s 打开"
+
+#: ../app/util.py:84 ../app/window.py:870
 msgid "Could not open"
 msgstr "无法打开"
 
@@ -360,15 +364,15 @@ msgstr "上一级 (Alt+↑)"
 msgid "New Tab"
 msgstr "新建标签页"
 
-#: ../app/window.py:109 ../app/window.py:627 ../app/window.py:649
+#: ../app/window.py:109 ../app/window.py:634 ../app/window.py:656
 msgid "Cut"
 msgstr "剪切"
 
-#: ../app/window.py:110 ../app/window.py:628 ../app/window.py:650
+#: ../app/window.py:110 ../app/window.py:635 ../app/window.py:657
 msgid "Copy"
 msgstr "复制"
 
-#: ../app/window.py:111 ../app/window.py:602
+#: ../app/window.py:111 ../app/window.py:609
 msgid "Paste"
 msgstr "粘贴"
 
@@ -380,7 +384,7 @@ msgstr "修改日期"
 msgid "Reversed Order"
 msgstr "倒序"
 
-#: ../app/window.py:124 ../app/window.py:677
+#: ../app/window.py:124 ../app/window.py:684
 msgid "Sort By"
 msgstr "排序方式"
 
@@ -392,12 +396,12 @@ msgstr "显示隐藏文件"
 msgid "Reload"
 msgstr "刷新"
 
-#: ../app/window.py:127 ../app/window.py:621 ../app/window.py:660
-#: ../app/window.py:672
+#: ../app/window.py:127 ../app/window.py:628 ../app/window.py:667
+#: ../app/window.py:679
 msgid "Open in Nemo"
 msgstr "在 Nemo 中打开"
 
-#: ../app/window.py:128 ../app/window.py:662 ../app/window.py:674
+#: ../app/window.py:128 ../app/window.py:669 ../app/window.py:681
 msgid "Open in Terminal"
 msgstr "在终端中打开"
 
@@ -444,116 +448,116 @@ msgstr "可用 %s"
 msgid "Could not open path"
 msgstr "无法打开路径"
 
-#: ../app/window.py:611 ../app/window.py:618
+#: ../app/window.py:618 ../app/window.py:625
 msgid "Restore"
 msgstr "还原"
 
-#: ../app/window.py:612 ../app/window.py:619
+#: ../app/window.py:619 ../app/window.py:626
 msgid "Delete Permanently"
 msgstr "彻底删除"
 
-#: ../app/window.py:615 ../app/window.py:645
+#: ../app/window.py:622 ../app/window.py:652
 msgid "Open With…"
 msgstr "打开方式…"
 
-#: ../app/window.py:623
+#: ../app/window.py:630
 msgid "Empty Trash"
 msgstr "清空回收站"
 
-#: ../app/window.py:634 ../app/window.py:655
+#: ../app/window.py:641 ../app/window.py:662
 msgid "Extract Here"
 msgstr "解压到此处"
 
-#: ../app/window.py:636 ../app/window.py:657
+#: ../app/window.py:643 ../app/window.py:664
 msgid "Compress…"
 msgstr "压缩…"
 
-#: ../app/window.py:638 ../app/window.py:667
+#: ../app/window.py:645 ../app/window.py:674
 msgid "Move to Trash"
 msgstr "移到回收站"
 
-#: ../app/window.py:639 ../app/window.py:668
+#: ../app/window.py:646 ../app/window.py:675
 msgid "Delete"
 msgstr "删除"
 
-#: ../app/window.py:643
+#: ../app/window.py:650
 msgid "Open in New Tab"
 msgstr "在新标签页中打开"
 
-#: ../app/window.py:647
+#: ../app/window.py:654
 msgid "Rename"
 msgstr "重命名"
 
-#: ../app/window.py:664
+#: ../app/window.py:671
 msgid "Show in Nemo"
 msgstr "在 Nemo 中显示"
 
-#: ../app/window.py:665 ../app/window.py:675
+#: ../app/window.py:672 ../app/window.py:682
 msgid "Copy Path"
 msgstr "复制路径"
 
-#: ../app/window.py:687
+#: ../app/window.py:694
 msgid "A file operation is still running"
 msgstr "还有文件操作在进行"
 
-#: ../app/window.py:688
+#: ../app/window.py:695
 msgid "Quitting now will leave it unfinished."
 msgstr "现在退出会让它半途而废。"
 
-#: ../app/window.py:688
+#: ../app/window.py:695
 msgid "Quit Anyway"
 msgstr "仍然退出"
 
-#: ../app/window.py:730
+#: ../app/window.py:737
 msgid "Could not paste"
 msgstr "无法粘贴"
 
-#: ../app/window.py:749
+#: ../app/window.py:756
 msgid "Could not move"
 msgstr "无法移动"
 
-#: ../app/window.py:749
+#: ../app/window.py:756
 msgid "Could not copy"
 msgstr "无法复制"
 
-#: ../app/window.py:768
+#: ../app/window.py:775
 msgid "Could not compress"
 msgstr "无法压缩"
 
-#: ../app/window.py:773
+#: ../app/window.py:780
 msgid "Could not extract"
 msgstr "无法解压"
 
-#: ../app/window.py:798
+#: ../app/window.py:805
 msgid "Cancelling…"
 msgstr "正在取消…"
 
 #. TRANSLATORS: progress, e.g. "1.2 GB of 4.5 GB"
-#: ../app/window.py:815
+#: ../app/window.py:822
 #, python-format
 msgid "%s of %s"
 msgstr "%s / %s"
 
-#: ../app/window.py:820
+#: ../app/window.py:827
 #, python-format
 msgid "(%d more waiting)"
 msgid_plural "(%d more waiting)"
 msgstr[0] "（还有 %d 项等待）"
 
-#: ../app/window.py:843
+#: ../app/window.py:850
 msgid "A Finder-style column view file browser"
 msgstr "Finder 风格的分栏文件浏览器"
 
 #. TRANSLATORS: credit line in the About dialog; put your name here
-#: ../app/window.py:847
+#: ../app/window.py:854
 msgid "translator-credits"
 msgstr "Yuanbin Cai"
 
-#: ../app/window.py:885
+#: ../app/window.py:892
 msgid "Could not open terminal"
 msgstr "无法打开终端"
 
-#: ../app/window.py:886
+#: ../app/window.py:893
 msgid "Only local folders can be opened in a terminal."
 msgstr "只有本地目录才能在终端中打开。"
 
