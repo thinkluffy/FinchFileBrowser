@@ -305,7 +305,9 @@ class Tab(Gtk.Box):
                 # coming back here shows its preview again.
                 self._history[self._hist_pos] = (self.root, gfile)
             self.show_preview(lambda pv: pv.set_file(gfile, info))
-            self._set_location(gfile)
+            # The location is always a folder: a file selected in a
+            # column leaves the title and path bar on that column's folder.
+            self._set_location(col.gfile)
         self.win._update_status()
 
     def _on_selection_changed(self, col, gfiles, infos):

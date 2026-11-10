@@ -14,7 +14,7 @@ except (ImportError, ValueError):
 
 from . import (MAX_IMAGE_PREVIEW, MAX_PREVIEW_CONTENT, MAX_PREVIEW_MEDIA,
                MAX_TEXT_PREVIEW, MIN_PREVIEW_MEDIA, _, ngettext, thumbs)
-from .util import is_text_like, launch_default
+from .util import is_text_like
 
 
 # How long the media box stays empty before the file's icon stands in for
@@ -134,6 +134,14 @@ def _picture(kind, path, size, meta):
     return None
 
 
+def _creation_time(info):
+    """The file's birth time as a GLib.DateTime, or None when the file
+    system or GLib does not know it."""
+    if not info.has_attribute("time::created") or not hasattr(info, "get_creation_date_time"):
+        return None
+    return info.get_creation_date_time()
+
+
 def _format_duration(seconds):
     hours, rest = divmod(int(round(seconds)), 3600)
     minutes, secs = divmod(rest, 60)
@@ -146,7 +154,6 @@ class Preview(Gtk.Box):
     def __init__(self, width):
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.gfile = None       # the previewed file, or None for a selection
-        self.gfiles = []        # what the Open button opens
         # The previewed picture, decoded once on a worker thread and bounded
         # to the largest media box; re-fitting it on resize is in-memory.
         self._pixbuf = None
@@ -159,7 +166,7 @@ class Preview(Gtk.Box):
         # `width` wide at least, grows with the pane up to MAX_PREVIEW_CONTENT,
         # and sits centred once the pane is wider than that. Likewise the
         # media box (picture / text) takes what is left of the pane's height
-        # once the name, details and button have theirs, between
+        # once the name, details and heading have theirs, between
         # MIN_PREVIEW_MEDIA and MAX_PREVIEW_MEDIA.
         self.content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8,
                                margin=12, halign=Gtk.Align.CENTER)
@@ -172,18 +179,27 @@ class Preview(Gtk.Box):
         self.media.set_size_request(-1, MIN_PREVIEW_MEDIA)
         self.pack_start(self.media, False, False, 0)
 
+        # Below the picture, Finder style: the name in bold, a dim line
+        # with the kind and size, then an "Information" list with the
+        # labels on the left, the values on the right and a hairline
+        # between the rows.
         self.name = Gtk.Label(wrap=True, wrap_mode=Pango.WrapMode.WORD_CHAR,
-                              justify=Gtk.Justification.CENTER, selectable=True)
-        self.name.get_style_context().add_class("title-3")
+                              xalign=0.0, selectable=True, margin_top=4)
+        self.name.get_style_context().add_class("preview-name")
         self.pack_start(self.name, False, False, 0)
 
-        self.details = Gtk.Grid(row_spacing=4, column_spacing=12,
-                                halign=Gtk.Align.CENTER)
-        self.pack_start(self.details, False, False, 0)
+        self.summary = Gtk.Label(wrap=True, xalign=0.0, selectable=True)
+        self.summary.get_style_context().add_class("dim-label")
+        self.pack_start(self.summary, False, False, 0)
 
-        self.open_btn = Gtk.Button(label=_("Open"), halign=Gtk.Align.CENTER)
-        self.open_btn.connect("clicked", self._on_open)
-        self.pack_start(self.open_btn, False, False, 6)
+        self.heading = Gtk.Label(label=_("Information"), xalign=0.0, margin_top=12,
+                                 no_show_all=True)
+        self.heading.get_style_context().add_class("preview-heading")
+        self.pack_start(self.heading, False, False, 0)
+
+        self.details = Gtk.Grid(column_spacing=12)
+        self.details.get_style_context().add_class("preview-info")
+        self.pack_start(self.details, False, False, 0)
 
         self.set_width(width)
         self.connect("size-allocate", self._on_size_allocate)
@@ -207,7 +223,7 @@ class Preview(Gtk.Box):
 
     def _others_height(self, width):
         """Height of everything in the content but the media box, laid out
-        `width` wide: name, details, button, spacing and margins."""
+        `width` wide: name, summary, details, spacing and margins."""
         box = self.content
         total = box.get_margin_top() + box.get_margin_bottom()
         others = [c for c in box.get_children() if c is not self.media]
@@ -248,7 +264,7 @@ class Preview(Gtk.Box):
         margins = self.content.get_margin_start() + self.content.get_margin_end()
         width = min(max(self._available, self._min_width), MAX_PREVIEW_CONTENT) - margins
         # The media box gets what is left of the pane's height once the name,
-        # details and button have their share, within its bounds.
+        # details have their share, within its bounds.
         spare = self._height - self._others_height(width)
         media = max(MIN_PREVIEW_MEDIA, min(MAX_PREVIEW_MEDIA, spare))
         if (width, media) == (self._content_width, self._media_height):
@@ -290,17 +306,12 @@ class Preview(Gtk.Box):
         widget.show_all()
         self.media.pack_start(widget, True, True, 0)
 
-    def _on_open(self, *_args):
-        for gfile in self.gfiles:
-            launch_default(gfile, self)
-
     def set_file(self, gfile, info):
         """Show `gfile`: what the directory listing already knows at once,
         and whatever has to be read from the file (pixel size, picture, text)
         as soon as a worker thread has it, so slow media never stall the
         window."""
         self.gfile = gfile
-        self.gfiles = [gfile]
         self._pixbuf = None
         self._gen += 1
 
@@ -319,20 +330,21 @@ class Preview(Gtk.Box):
         elif is_text_like(ctype):
             kind = "text"
         self.name.set_text(info.get_display_name() or info.get_name())
-        rows = [(_("Kind"), Gio.content_type_get_description(ctype) or ctype)]
-        rows.extend((label, "…") for label in pending)
+        kind_name = Gio.content_type_get_description(ctype) or ctype
         if info.get_file_type() != Gio.FileType.DIRECTORY:   # a folder's size says nothing
-            rows.append((_("Size"), GLib.format_size(size)))
-        mtime = info.get_modification_date_time()
-        if mtime is not None:
-            rows.append((_("Modified"), mtime.to_local().format("%Y-%m-%d %H:%M")))
+            kind_name = "%s - %s" % (kind_name, GLib.format_size(size))
+        self.summary.set_text(kind_name)
+        rows = [(label, "…") for label in pending]
+        for label, when in ((_("Created"), _creation_time(info)),
+                            (_("Modified"), info.get_modification_date_time())):
+            if when is not None:
+                rows.append((label, when.to_local().format("%Y-%m-%d %H:%M")))
         target = (info.get_symlink_target()
                   if info.has_attribute("standard::symlink-target") else None)
         if target:
             rows.append((_("Links to"), target))
         self._set_details(rows)
 
-        self.open_btn.set_sensitive(True)
         self._icon = info.get_icon()
         self._standin, self._showing = None, None
         if kind is not None:
@@ -455,7 +467,6 @@ class Preview(Gtk.Box):
         self._pixbuf = None
         self._gen += 1
         is_dir = [i.get_file_type() == Gio.FileType.DIRECTORY for i in infos]
-        self.gfiles = [g for g, d in zip(gfiles, is_dir) if not d]
         n, dirs = len(gfiles), sum(is_dir)
         files = n - dirs
         self.name.set_text(ngettext("%d item", "%d items", n) % n)
@@ -464,15 +475,15 @@ class Preview(Gtk.Box):
             kinds.append(ngettext("%d folder", "%d folders", dirs) % dirs)
         if files:
             kinds.append(ngettext("%d file", "%d files", files) % files)
-        rows = [(_("Kind"), _(", ").join(kinds))]
+        summary = _(", ").join(kinds)
         if files:
             total = sum(i.get_size() for i, d in zip(infos, is_dir) if not d)
-            rows.append((_("Size"), GLib.format_size(total)))
+            summary = "%s - %s" % (summary, GLib.format_size(total))
+        self.summary.set_text(summary)
         names = [i.get_display_name() or i.get_name() for i in infos[:8]]
         if n > len(names):
             names.append(_("and %d more…") % (n - len(names)))
-        rows.append((_("Items"), "\n".join(names)))
-        self._set_details(rows)
+        self._set_details([(_("Items"), "\n".join(names))])
 
         grid = Gtk.Grid(row_spacing=6, column_spacing=6,
                         halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
@@ -482,19 +493,22 @@ class Preview(Gtk.Box):
             img.set_pixel_size(48)
             grid.attach(img, k % per_row, k // per_row, 1, 1)
         self._show_media(grid)
-        self.open_btn.set_sensitive(bool(self.gfiles))
 
     def _set_details(self, rows):
         self._rows = list(rows)
         for child in self.details.get_children():
             self.details.remove(child)
         for i, (k, v) in enumerate(rows):
-            kl = Gtk.Label(label=k, xalign=1.0, yalign=0.0)
+            if i:
+                self.details.attach(Gtk.Separator(), 0, 2 * i - 1, 2, 1)
+            kl = Gtk.Label(label=k, xalign=0.0, yalign=0.0, margin_top=5, margin_bottom=5)
             kl.get_style_context().add_class("dim-label")
-            vl = Gtk.Label(label=v, xalign=0.0, wrap=True, selectable=True,
-                           max_width_chars=28)
-            self.details.attach(kl, 0, i, 1, 1)
-            self.details.attach(vl, 1, i, 1, 1)
+            vl = Gtk.Label(label=v, xalign=1.0, wrap=True, selectable=True,
+                           justify=Gtk.Justification.RIGHT, max_width_chars=28,
+                           hexpand=True, margin_top=5, margin_bottom=5)
+            self.details.attach(kl, 0, 2 * i, 1, 1)
+            self.details.attach(vl, 1, 2 * i, 1, 1)
+        self.heading.set_visible(bool(rows))
         # The name and details are in place (and shown, or they would report
         # no size): now the media box can be sized for the room they leave,
         # and a picture scaled to it in one go.

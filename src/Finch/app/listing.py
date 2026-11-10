@@ -109,10 +109,18 @@ class Listing(Gtk.Box):
         self.message.get_style_context().add_class("dim-label")
         # Same "view" background as the list, so an empty listing still reads
         # as one next to the sidebar instead of blending into the window.
-        message_bg = Gtk.EventBox()
+        message_bg = self.message_bg = Gtk.EventBox()
         message_bg.get_style_context().add_class("view")
+        message_bg.get_style_context().add_class("empty-folder")
         message_bg.add(self.message)
         message_bg.connect("button-press-event", self._on_message_press)
+        # The message stands in for the list of an empty folder: files are
+        # dropped on it just the same (into this listing's directory).
+        message_bg.drag_dest_set(0, DND_TARGETS, Gdk.DragAction.MOVE | Gdk.DragAction.COPY)
+        message_bg.connect("drag-motion", self._on_drag_motion)
+        message_bg.connect("drag-leave", self._on_drag_leave)
+        message_bg.connect("drag-drop", self._on_drag_drop)
+        message_bg.connect("drag-data-received", self._on_drag_data_received)
         self.stack = Gtk.Stack()
         self.stack.add_named(self.sw, "list")
         self.stack.add_named(message_bg, "message")
@@ -620,7 +628,9 @@ class Listing(Gtk.Box):
         if not self.accepts_drops():
             return None, None
         dest, handle = self.gfile, None
-        hit = self._item_at(x, y)
+        # (x, y) are in the list's coordinates; on the "Empty folder" page
+        # there is no row to hit.
+        hit = self._item_at(x, y) if self.stack.get_visible_child_name() == "list" else None
         if hit is not None and not self.in_trash():
             row = self.store[hit]
             if row[C_ISDIR]:
@@ -646,10 +656,13 @@ class Listing(Gtk.Box):
             return True
         Gdk.drag_status(ctx, drop_action(ctx, view), time)
         self._highlight_drop(handle)
+        if handle is None:
+            self.message_bg.get_style_context().add_class("drop-target")
         return True
 
     def _on_drag_leave(self, view, ctx, time):
         self._clear_drop()
+        self.message_bg.get_style_context().remove_class("drop-target")
 
     def _on_drag_drop(self, view, ctx, x, y, time):
         if not drag_has_files(ctx):

@@ -77,7 +77,7 @@ ATTRS = ",".join([
     "standard::name", "standard::display-name", "standard::type",
     "standard::icon", "standard::is-hidden", "standard::is-backup",
     "standard::content-type", "standard::size", "standard::symlink-target",
-    "time::modified", "trash::orig-path",
+    "time::modified", "time::created", "trash::orig-path",
 ])
 DEFAULT_COL_WIDTH = 240
 MIN_COL_WIDTH = 140

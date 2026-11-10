@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: finch\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-10 11:56+0800\n"
+"POT-Creation-Date: 2026-11-10 17:09+0800\n"
 "PO-Revision-Date: 2026-11-05 18:00+0800\n"
 "Last-Translator: Yuanbin Cai\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -104,30 +104,30 @@ msgstr "AES-256 加密，文件名也会隐藏。"
 msgid "AES-256; the file names stay visible."
 msgstr "AES-256 加密，文件名仍可见。"
 
-#: ../app/listing.py:281
+#: ../app/listing.py:289
 msgid "Empty folder"
 msgstr "空文件夹"
 
-#: ../app/listing.py:384
+#: ../app/listing.py:392
 msgid "Could not rename"
 msgstr "无法重命名"
 
-#: ../app/listing.py:442 ../app/window.py:753
+#: ../app/listing.py:450 ../app/window.py:753
 msgid "Could not move to trash"
 msgstr "无法移到回收站"
 
-#: ../app/listing.py:450
+#: ../app/listing.py:458
 #, python-format
 msgid "Permanently delete “%s”?"
 msgstr "永久删除“%s”？"
 
-#: ../app/listing.py:451
+#: ../app/listing.py:459
 #, python-format
 msgid "Permanently delete %d item?"
 msgid_plural "Permanently delete %d items?"
 msgstr[0] "永久删除这 %d 项？"
 
-#: ../app/listing.py:454
+#: ../app/listing.py:462
 msgid ""
 "This item will be deleted immediately, bypassing the trash. This cannot be "
 "undone."
@@ -136,37 +136,37 @@ msgid_plural ""
 "undone."
 msgstr[0] "这个操作不经过回收站，无法撤销。"
 
-#: ../app/listing.py:458
+#: ../app/listing.py:466
 msgid "_Delete"
 msgstr "删除(_D)"
 
-#: ../app/listing.py:469
+#: ../app/listing.py:477
 msgid "Could not delete"
 msgstr "无法删除"
 
-#: ../app/listing.py:481
+#: ../app/listing.py:489
 #, python-format
 msgid "The original location of “%s” is unknown."
 msgstr "不知道“%s”原来的位置。"
 
-#: ../app/listing.py:492
+#: ../app/listing.py:500
 msgid "Could not restore"
 msgstr "无法还原"
 
-#: ../app/listing.py:497
+#: ../app/listing.py:505
 msgid "Empty trash?"
 msgstr "清空回收站？"
 
-#: ../app/listing.py:498
+#: ../app/listing.py:506
 msgid ""
 "All items in the trash will be permanently deleted. This cannot be undone."
 msgstr "回收站里的所有项目都会被永久删除，无法撤销。"
 
-#: ../app/listing.py:500
+#: ../app/listing.py:508
 msgid "_Empty Trash"
 msgstr "清空(_E)"
 
-#: ../app/listing.py:513
+#: ../app/listing.py:521
 msgid "Some items could not be deleted"
 msgstr "部分项目无法删除"
 
@@ -182,79 +182,75 @@ msgstr "切换路径输入框"
 msgid "File System"
 msgstr "文件系统"
 
-#: ../app/preview.py:184 ../app/util.py:75
-msgid "Open"
-msgstr "打开"
+#: ../app/preview.py:195
+msgid "Information"
+msgstr "信息"
 
 #. TRANSLATORS: image size in pixels, e.g. "1920 × 1080"
-#: ../app/preview.py:314 ../app/preview.py:318 ../app/preview.py:430
+#: ../app/preview.py:325 ../app/preview.py:329 ../app/preview.py:442
 msgid "Dimensions"
 msgstr "分辨率"
 
-#: ../app/preview.py:316 ../app/preview.py:432
+#: ../app/preview.py:327 ../app/preview.py:444
 msgid "Pages"
 msgstr "页数"
 
-#: ../app/preview.py:318 ../app/preview.py:434
+#: ../app/preview.py:329 ../app/preview.py:446
 msgid "Duration"
 msgstr "时长"
 
-#: ../app/preview.py:322 ../app/preview.py:467 ../app/window.py:118
-msgid "Kind"
-msgstr "类型"
+#: ../app/preview.py:338
+msgid "Created"
+msgstr "创建时间"
 
-#: ../app/preview.py:325 ../app/preview.py:470 ../app/window.py:118
-msgid "Size"
-msgstr "大小"
-
-#: ../app/preview.py:328
+#: ../app/preview.py:339
 msgid "Modified"
-msgstr "修改"
+msgstr "修改时间"
 
-#: ../app/preview.py:332
+#: ../app/preview.py:345
 msgid "Links to"
 msgstr "链接到"
 
-#: ../app/preview.py:430
+#: ../app/preview.py:442
 #, python-format
 msgid "%d × %d"
 msgstr "%d × %d"
 
-#: ../app/preview.py:432
+#: ../app/preview.py:444
 #, python-format
 msgid "%d page"
 msgid_plural "%d pages"
 msgstr[0] "%d 页"
 
-#: ../app/preview.py:461 ../app/window.py:491
+#: ../app/preview.py:472 ../app/window.py:491
 #, python-format
 msgid "%d item"
 msgid_plural "%d items"
 msgstr[0] "%d 项"
 
-#: ../app/preview.py:464
+#: ../app/preview.py:475
 #, python-format
 msgid "%d folder"
 msgid_plural "%d folders"
 msgstr[0] "%d 个文件夹"
 
-#: ../app/preview.py:466
+#: ../app/preview.py:477
 #, python-format
 msgid "%d file"
 msgid_plural "%d files"
 msgstr[0] "%d 个文件"
 
 #. TRANSLATORS: separator between the parts of the status line
-#: ../app/preview.py:467 ../app/window.py:506 ../app/window.py:824
+#: ../app/preview.py:478 ../app/window.py:506 ../app/window.py:824
 msgid ", "
 msgstr "，"
 
-#: ../app/preview.py:473
+#: ../app/preview.py:485
 #, python-format
 msgid "and %d more…"
 msgstr "还有 %d 项…"
 
-#: ../app/preview.py:474
+#: ../app/preview.py:486
 msgid "Items"
 msgstr "项目"
 
@@ -339,6 +335,10 @@ msgstr "无法把“%s”移动到它自身里面。"
 msgid "“%s” cannot be copied into itself."
 msgstr "无法把“%s”复制到它自身里面。"
 
+#: ../app/util.py:75
+msgid "Open"
+msgstr "打开"
+
 #: ../app/util.py:76
 #, python-format
 msgid "Open With %s"
@@ -379,6 +379,14 @@ msgstr "粘贴"
 #: ../app/window.py:117
 msgid "Date Modified"
 msgstr "修改日期"
+
+#: ../app/window.py:118
+msgid "Size"
+msgstr "大小"
+
+#: ../app/window.py:118
+msgid "Kind"
+msgstr "类型"
 
 #: ../app/window.py:121
 msgid "Reversed Order"
