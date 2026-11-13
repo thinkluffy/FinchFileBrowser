@@ -48,10 +48,11 @@ class TabStrip(Gtk.Notebook):
 
 
 class FinchWindow(Gtk.ApplicationWindow):
-    """`root`: the folder of the first tab, or None for a window that is
-    about to receive a tab dragged out of another one."""
+    """`root`: the folder of the first tab (`select`: the item to select
+    below it), or None for a window that is about to receive a tab dragged
+    out of another one."""
 
-    def __init__(self, app, root, state):
+    def __init__(self, app, root, state, select=None):
         super().__init__(application=app, title="Finch")
         self.get_style_context().add_class("finch-main")
         self.state = state
@@ -262,7 +263,7 @@ class FinchWindow(Gtk.ApplicationWindow):
 
         self.connect("delete-event", self._on_delete)
         if root is not None:
-            self.open_tab(root)
+            self.open_tab(root, select=select)
 
     # -- helpers -------------------------------------------------------------
     def _add_action(self, name, cb):

@@ -23,12 +23,31 @@ This produces, in `output/`:
   `~/.local/bin/`.
 - `output/finch.desktop` — an application-menu entry whose `Exec` points at
   that executable.
+- `output/finch-filemanager.service` — a systemd user unit that runs
+  `output/finch --service` (see below).
 
 ```bash
 output/finch              # open the home directory
 output/finch ~/Pictures   # open a given directory
 cp output/finch.desktop ~/.local/share/applications/
 ```
+
+To have other programs' "Show in folder" (Feishu's "Open folder", browsers'
+download lists) open Finch, install the service. Such programs ask whoever
+owns `org.freedesktop.FileManager1` on the session bus; `finch --service`
+owns that name and starts a Finch for each request. As a systemd user
+service it is up before Nemo's desktop process, which wants the same name:
+
+```bash
+cp output/finch-filemanager.service ~/.config/systemd/user/
+```
+
+```bash
+systemctl --user enable --now finch-filemanager.service
+```
+
+The first time, log out and in again (or restart `nemo-desktop`) for the
+name to change hands.
 
 For development there is no need to build; run straight from the source tree:
 
@@ -57,10 +76,13 @@ src/Finch/                  the program
   app/tab.py                one tab: the strip of columns, its preview and history
   app/window.py             main window: title bar, tabs, context menu, status, file jobs
   app/application.py        Gtk.Application, accelerators, command line
+  app/service.py            finch --service: org.freedesktop.FileManager1 on the session bus
+  app/main.py               main(): starts the application or the service
   app/style.css             overrides on top of the GTK theme
   app/locale/               compiled translations (made by update.sh, not committed)
   po/                       translation template, per-language .po files, update.sh
   finch.desktop             menu entry template (build.sh fills in the path)
+  finch-filemanager.service systemd user unit template (build.sh fills in the path)
 doc/                        documentation
 output/                     build products, not committed
 ```

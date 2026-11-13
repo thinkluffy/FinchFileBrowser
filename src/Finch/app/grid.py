@@ -18,7 +18,7 @@ import time
 import cairo
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from . import C_FILE, C_INFO, C_ISDIR, C_NAME, thumbs
+from . import C_FILE, C_INFO, C_ISDIR, C_NAME, archive, thumbs
 from .listing import DND_TARGETS, Listing, _dragging
 
 ICON_SIZE = 64
@@ -32,6 +32,17 @@ TEXT_LINES = 3              # a name wraps onto this many lines before "…"
 TEXT_INSET = 6              # the name's box is this much narrower than the cell
 PILL_PAD = 4                # the selected name's background reaches this far out
 SEARCH_TIMEOUT = 1.0        # typed letters this close together form one search
+# Badges the way Nemo (that is, GTK rendering a GEmblemedIcon) puts them:
+# half the icon's size, the first flush with the icon's bottom-right
+# corner, the next ones top-right, bottom-left, top-left. Nemo marks files
+# it cannot write (padlock), cannot read, and symbolic links; Finch adds
+# encrypted archives, with a padlock of their own where the theme has one.
+LOCK_EMBLEM = Gio.ThemedIcon.new_from_names(["emblem-locked", "emblem-readonly"])
+READONLY_EMBLEM = Gio.ThemedIcon.new("emblem-readonly")
+UNREADABLE_EMBLEM = Gio.ThemedIcon.new("emblem-unreadable")
+SYMLINK_EMBLEM = Gio.ThemedIcon.new("emblem-symbolic-link")
+EMBLEM_SIZE = ICON_SIZE // 2
+EMBLEM_CORNERS = ((1, 1), (1, 0), (0, 1), (0, 0))   # (right?, bottom?) per emblem
 
 _icons = {}                 # (icon string, size, scale) -> cairo surface or None
 
@@ -55,6 +66,7 @@ class Grid(Listing):
         self._entry = None      # the rename box while it is up
         self._search = ("", 0.0)
         self._thumbs = None
+        self._locks = None      # the worker that finds encrypted archives
         super().__init__(gfile, show_hidden, sort_by, sort_reversed)
 
     def _make_view(self):
@@ -205,6 +217,8 @@ class Grid(Listing):
     def _on_destroy(self, *args):
         if self._thumbs is not None:
             self._thumbs.stop()
+        if self._locks is not None:
+            self._locks.stop()
         super()._on_destroy(*args)
 
     # -- drawing ---------------------------------------------------------------
@@ -218,7 +232,7 @@ class Grid(Listing):
         Gtk.render_background(ctx, cr, x0, y0, x1 - x0, y1 - y0)
         if self.items:
             layout = self._text_layout(view)
-            wanted = []
+            wanted, locks = [], []
             first = max(0, int((y0 - MARGIN) // self._cell_h))
             last = max(0, int((y1 - MARGIN) // self._cell_h))
             for row in range(first, last + 1):
@@ -226,9 +240,11 @@ class Grid(Listing):
                     idx = row * self._cols + col
                     if idx >= len(self.items):
                         break
-                    self._draw_cell(cr, ctx, layout, idx, *self._cell_pos(idx), wanted)
+                    self._draw_cell(cr, ctx, layout, idx, *self._cell_pos(idx), wanted, locks)
             if wanted or self._thumbs is not None:
                 self._thumbnailer().want(wanted)
+            if locks or self._locks is not None:
+                self._lock_checker().want(locks)
         if self._band is not None:
             bx0, by0, bx1, by1, _base = self._band
             ok, rgba = ctx.lookup_color("theme_selected_bg_color")
@@ -252,9 +268,10 @@ class Grid(Listing):
         layout.set_height(-TEXT_LINES)
         return layout
 
-    def _draw_cell(self, cr, ctx, layout, idx, x, y, wanted, plain=False):
+    def _draw_cell(self, cr, ctx, layout, idx, x, y, wanted, locks, plain=False):
         """One cell at (x, y). `plain`: no selection, for the drag icon.
-        Files whose picture is still to be made are appended to `wanted`."""
+        Files whose picture is still to be made are appended to `wanted`,
+        archives not yet known to be encrypted or not to `locks`."""
         gicon, name, is_dir, gfile, info = self.items[idx]
         selected = not plain and idx in self._selected
         cell_w = int(self._cell_w)
@@ -282,6 +299,12 @@ class Grid(Listing):
             if surface is not None:
                 cr.set_source_surface(surface, box_x, box_y)
                 cr.paint()
+        for emblem, (right, bottom) in zip(self._emblems(gfile, info, locks), EMBLEM_CORNERS):
+            surface = self._icon_surface(emblem, EMBLEM_SIZE, fallback=None)
+            if surface is not None:
+                cr.set_source_surface(surface, box_x + right * (ICON_SIZE - EMBLEM_SIZE),
+                                      box_y + bottom * (ICON_SIZE - EMBLEM_SIZE))
+                cr.paint()
         if self._drop_hit == idx:
             ok, rgba = ctx.lookup_color("theme_selected_bg_color")
             if ok:
@@ -307,16 +330,18 @@ class Grid(Listing):
         else:
             Gtk.render_layout(ctx, cr, tx, ty, layout)
 
-    def _icon_surface(self, gicon):
+    def _icon_surface(self, gicon, size=ICON_SIZE, fallback="text-x-generic"):
+        """`gicon` rendered at `size`, or the `fallback` icon when the theme
+        has nothing for it (None: nothing at all, for an emblem)."""
         scale = self.view.get_scale_factor()
-        key = (Gio.Icon.to_string(gicon) if gicon is not None else "", ICON_SIZE, scale)
+        key = (Gio.Icon.to_string(gicon) if gicon is not None else "", size, scale)
         if key in _icons:
             return _icons[key]
         theme = Gtk.IconTheme.get_default()
         flags = Gtk.IconLookupFlags.FORCE_SIZE
-        info = theme.lookup_by_gicon_for_scale(gicon, ICON_SIZE, scale, flags) if gicon else None
-        if info is None:
-            info = theme.lookup_icon_for_scale("text-x-generic", ICON_SIZE, scale, flags)
+        info = theme.lookup_by_gicon_for_scale(gicon, size, scale, flags) if gicon else None
+        if info is None and fallback:
+            info = theme.lookup_icon_for_scale(fallback, size, scale, flags)
         try:
             surface = info.load_surface(self.view.get_window()) if info is not None else None
         except GLib.Error:
@@ -334,6 +359,41 @@ class Grid(Listing):
         if self.get_realized():
             self.view.queue_draw()
         return False
+
+    def _lock_checker(self):
+        if self._locks is None:
+            self._locks = archive.LockChecker(self._on_thumb_ready)
+        return self._locks
+
+    def _emblems(self, gfile, info, locks):
+        """The badges a file gets, first (bottom-right) first: one padlock
+        at most, for an encrypted archive or else a file that cannot be
+        written (nothing can be written in the trash: no padlocks there),
+        the "unreadable" mark, the symbolic link arrow."""
+        emblems = []
+        is_dir = info.get_file_type() == Gio.FileType.DIRECTORY
+        if not is_dir and self._locked(gfile, info, locks):
+            emblems.append(LOCK_EMBLEM)
+        if info.has_attribute("access::can-read") and not info.get_attribute_boolean("access::can-read"):
+            emblems.append(UNREADABLE_EMBLEM)
+        elif (not emblems and not self.in_trash() and info.has_attribute("access::can-write")
+                and not info.get_attribute_boolean("access::can-write")):
+            emblems.append(READONLY_EMBLEM)
+        if info.get_is_symlink():
+            emblems.append(SYMLINK_EMBLEM)
+        return emblems
+
+    def _locked(self, gfile, info, locks):
+        """Whether the file is an archive known to want a password; one
+        not looked at yet is appended to `locks` and counts as not."""
+        ctype = info.get_content_type() or ""
+        if not archive.can_be_locked(ctype):
+            return False
+        key = thumbs.stamp(gfile, info.get_attribute_uint64("time::modified"), info.get_size())
+        known, encrypted = archive.lock_get(key)
+        if not known:
+            locks.append((key, gfile.get_path(), ctype))
+        return encrypted
 
     def _thumbnail(self, idx, gfile, info, wanted):
         """The file's small picture if there is one (yet); asks for it to be
@@ -565,7 +625,7 @@ class Grid(Listing):
         surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, w * scale, h * scale)
         surface.set_device_scale(scale, scale)
         cr = cairo.Context(surface)
-        self._draw_cell(cr, view.get_style_context(), self._text_layout(view), idx, 0, 0, [],
+        self._draw_cell(cr, view.get_style_context(), self._text_layout(view), idx, 0, 0, [], [],
                         plain=True)
         count = len(_dragging)
         if count > 1:

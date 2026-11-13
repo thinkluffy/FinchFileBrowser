@@ -14,7 +14,9 @@ a placeholder to show while the full rendering is made.
 (seconds); only the known ones are present.
 
 Thumbnailer, at the end, serves the icon grid: small pictures made on a
-worker thread from the same caches (and, for images, from the file).
+worker thread from the same caches (and, for images, from the file). Its
+base, Worker, is the thread-and-queue part on its own, for other facts the
+grid finds out in the background (whether an archive is encrypted).
 """
 import hashlib
 import os
@@ -204,27 +206,35 @@ def _grid_picture(gfile, path, ctype, mtime, size):
     return pixbuf
 
 
-class Thumbnailer:
-    """Makes grid thumbnails of `bound` px on one worker thread. `want()`
-    replaces the queue with the files now in view, so scrolling past a
-    thousand pictures never leaves a thousand renderings queued; each
-    finished one is announced with `on_ready()` on the main loop."""
+class Worker:
+    """One daemon thread answering questions about the files in view.
+    `want()` replaces the queue with the files now on screen, first wanted
+    first, so scrolling past a thousand of them never leaves a thousand
+    jobs queued; each answer is stored by the subclass (`_make`) and
+    announced with `on_ready()` on the main loop."""
 
-    def __init__(self, bound, on_ready):
-        self.bound = bound
+    def __init__(self, on_ready):
         self._on_ready = on_ready
         self._cond = threading.Condition()
         self._wanted = []
         self._thread = None
         self._stopped = False
 
+    def _known(self, key):
+        """Whether the answer for `key` is already stored."""
+        raise NotImplementedError
+
+    def _make(self, request):
+        """Answer `request` (a tuple starting with its key) and store it."""
+        raise NotImplementedError
+
     def want(self, requests):
-        """`requests`: (key, gfile, path, ctype, mtime, size) tuples, first
-        wanted first. Only what is not known yet is kept."""
+        """`requests`: tuples starting with the cache key, first wanted
+        first. Only what is not known yet is kept."""
         with self._cond:
             if self._stopped:
                 return
-            self._wanted = [r for r in requests if not thumb_get(r[0])[0]]
+            self._wanted = [r for r in requests if not self._known(r[0])]
             if self._wanted and self._thread is None:
                 self._thread = threading.Thread(target=self._work, daemon=True)
                 self._thread.start()
@@ -243,12 +253,29 @@ class Thumbnailer:
                     self._cond.wait()
                 if self._stopped:
                     return
-                key, gfile, path, ctype, mtime, size = self._wanted.pop(0)
-            if thumb_get(key)[0]:
+                request = self._wanted.pop(0)
+            if self._known(request[0]):
                 continue
-            try:
-                picture = _grid_picture(gfile, path, ctype, mtime, size)
-            except GLib.Error:
-                picture = None
-            _thumb_put(key, _fit(picture, self.bound) if picture is not None else None)
+            self._make(request)
             GLib.idle_add(self._on_ready)
+
+
+class Thumbnailer(Worker):
+    """Makes grid thumbnails of `bound` px from the caches above (and, for
+    images, from the file); requests are (key, gfile, path, ctype, mtime,
+    size) tuples."""
+
+    def __init__(self, bound, on_ready):
+        super().__init__(on_ready)
+        self.bound = bound
+
+    def _known(self, key):
+        return thumb_get(key)[0]
+
+    def _make(self, request):
+        key, gfile, path, ctype, mtime, size = request
+        try:
+            picture = _grid_picture(gfile, path, ctype, mtime, size)
+        except GLib.Error:
+            picture = None
+        _thumb_put(key, _fit(picture, self.bound) if picture is not None else None)

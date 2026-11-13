@@ -15,7 +15,9 @@ Package layout:
     pathbar      the location bar: folder buttons or a text entry (PathBar)
     sidebar      GtkPlacesSidebar with section titles and device usage bars
     window       the main window: tool bar, navigation, context menu
-    application  Gtk.Application, CSS and accelerators; `main()` lives here
+    application  Gtk.Application, CSS, accelerators and the command line
+    service      `finch --service`: org.freedesktop.FileManager1 on the session bus
+    main         `main()`: starts the application or the service
 """
 import gettext
 import io
@@ -77,6 +79,7 @@ ATTRS = ",".join([
     "standard::name", "standard::display-name", "standard::type",
     "standard::icon", "standard::is-hidden", "standard::is-backup",
     "standard::content-type", "standard::size", "standard::symlink-target",
+    "standard::is-symlink", "access::can-read", "access::can-write",
     "time::modified", "time::created", "trash::orig-path",
 ])
 DEFAULT_COL_WIDTH = 240

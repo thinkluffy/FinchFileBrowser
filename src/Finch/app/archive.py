@@ -8,6 +8,8 @@ SevenZip drives the 7z program instead, for the 7z format and for archives
 with a password (AES-256; zipfile cannot write encrypted entries), parsing
 the percentages it prints. Extract unpacks an archive next to itself.
 ask_archive() and ask_password() are the small dialogs that go with them.
+is_encrypted() and LockChecker tell the icon grid which archives want a
+password, so it can mark them with a lock.
 """
 import os
 import re
@@ -15,12 +17,15 @@ import shutil
 import stat
 import subprocess
 import tarfile
+import threading
 import uuid
 import zipfile
+from collections import OrderedDict
 
 from gi.repository import Gio, GLib, Gtk, Pango
 
 from . import _
+from .thumbs import Worker
 from .transfer import Job, _unique_child
 
 # (suffix, label, tarfile mode or None), first is the default. ".zip" and
@@ -331,6 +336,83 @@ def archive_stem(name):
             return name[:-len(suffix)]
     stem = os.path.splitext(name)[0]
     return stem or name
+
+
+# ---------------------------------------------------------- encryption ----
+# Archive kinds that can carry a password: zip (and what is built on it),
+# 7z and rar. tar and single compressed files cannot.
+_LOCKABLE_7Z_TYPES = ("application/x-7z-compressed", "application/vnd.rar",
+                      "application/x-rar")
+_LOCK_ENTRIES = 4000                 # answers kept in memory
+_locks = OrderedDict()               # stamp -> encrypted?
+_locks_lock = threading.Lock()
+
+
+def can_be_locked(content_type):
+    """Whether a file of this type is an archive that might want a password
+    (worth asking is_encrypted about)."""
+    content_type = content_type or ""
+    if Gio.content_type_is_a(content_type, "application/zip"):
+        return True
+    return sevenzip() is not None and _is_type(content_type, _LOCKABLE_7Z_TYPES)
+
+
+def is_encrypted(path, content_type):
+    """Whether the archive at `path` wants a password. A zip's entries carry
+    a flag that zipfile reads from the central directory in-process; 7z
+    and rar are asked of the 7z program, whose listing says "Encrypted = +"
+    for protected entries and refuses outright an archive whose file list
+    is hidden too (7z -mhe). Anything unreadable counts as not encrypted."""
+    if not path:
+        return False
+    content_type = content_type or ""
+    if Gio.content_type_is_a(content_type, "application/zip"):
+        try:
+            with zipfile.ZipFile(path) as zf:
+                return any(info.flag_bits & 0x1 for info in zf.infolist())
+        except (OSError, zipfile.BadZipFile, RuntimeError, ValueError, EOFError):
+            return False
+    if not _is_type(content_type, _LOCKABLE_7Z_TYPES) or sevenzip() is None:
+        return False
+    try:
+        proc = subprocess.run([sevenzip(), "l", "-slt", "-p", "--", path],
+                              stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    out = proc.stdout.decode(errors="replace")
+    if "Encrypted = +" in out:
+        return True
+    err = proc.stderr.decode(errors="replace")
+    return proc.returncode != 0 and "password" in (out + err).lower()
+
+
+def lock_get(key):
+    """(known?, encrypted?) for the archive with cache key `key`."""
+    with _locks_lock:
+        if key not in _locks:
+            return False, False
+        _locks.move_to_end(key)
+        return True, _locks[key]
+
+
+def _lock_put(key, encrypted):
+    with _locks_lock:
+        _locks[key] = encrypted
+        _locks.move_to_end(key)
+        while len(_locks) > _LOCK_ENTRIES:
+            _locks.popitem(last=False)
+
+
+class LockChecker(Worker):
+    """Finds out on a worker thread which archives are encrypted; requests
+    are (key, path, content type) tuples."""
+
+    def _known(self, key):
+        return lock_get(key)[0]
+
+    def _make(self, request):
+        key, path, content_type = request
+        _lock_put(key, is_encrypted(path, content_type))
 
 
 class Extract(_Uses7z, Job):

@@ -1,6 +1,4 @@
 """Gtk.Application: CSS, accelerators and the command line."""
-import sys
-
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from . import APP_ID, resource
@@ -55,36 +53,46 @@ class FinchApp(Gtk.Application):
         Gtk.Application.do_shutdown(self)
 
     @staticmethod
-    def _folder(gfile):
-        """`gfile` if it is a folder that can be read, its parent if it is a
-        file, else None."""
-        try:
-            if gfile.query_info("standard::type", Gio.FileQueryInfoFlags.NONE,
-                                None).get_file_type() != Gio.FileType.DIRECTORY:
-                gfile = gfile.get_parent()
-        except GLib.Error:
-            return None
-        if gfile is not None and gfile.get_path():
+    def _place(gfile, select):
+        """Where the argument `gfile` is shown: (folder, item to select in
+        it or None), or None when there is nothing to show. A folder is
+        opened, unless `select` asks for it to be shown in its parent like a
+        file is; an item that is gone leaves its folder."""
+        if gfile.get_path():
             gfile = Gio.File.new_for_path(gfile.get_path())   # normalise "dir/" → "dir"
-        return gfile
+        try:
+            is_dir = gfile.query_info("standard::type", Gio.FileQueryInfoFlags.NONE,
+                                      None).get_file_type() == Gio.FileType.DIRECTORY
+        except GLib.Error:
+            parent = gfile.get_parent()
+            if parent is None or not parent.query_exists(None):
+                return None
+            return parent, None
+        parent = gfile.get_parent()
+        if is_dir and (not select or parent is None):
+            return gfile, None
+        return parent, gfile
 
     def do_command_line(self, cmdline):
         args = cmdline.get_arguments()[1:]
-        home = Gio.File.new_for_path(GLib.get_home_dir())
+        # --select (what the FileManager1 service passes): show every
+        # argument selected in its folder, folders too.
+        select = args[:1] == ["--select"]
+        if select:
+            del args[0]
         # Every argument is a tab, the first the current one; with none,
         # a single tab on the home folder (where the user was last time is
         # not remembered).
-        roots = [self._folder(Gio.File.new_for_commandline_arg_and_cwd(a, cmdline.get_cwd()))
-                 for a in args]
-        roots = [r for r in roots if r is not None] or [home]
-        win = FinchWindow(self, roots[0], self.state)
-        for root in roots[1:]:
-            win.open_tab(root, switch=False)
+        places = [self._place(Gio.File.new_for_commandline_arg_and_cwd(a, cmdline.get_cwd()),
+                              select)
+                  for a in args]
+        places = [p for p in places if p is not None]
+        if not places:
+            places = [(Gio.File.new_for_path(GLib.get_home_dir()), None)]
+        win = FinchWindow(self, places[0][0], self.state, select=places[0][1])
+        for folder, item in places[1:]:
+            win.open_tab(folder, select=item, switch=False)
         if win.columns:
             win.columns[0].view.grab_focus()
         win.show_all()
         return 0
-
-
-def main(argv=None):
-    return FinchApp().run(sys.argv if argv is None else argv)

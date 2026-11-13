@@ -1,0 +1,19 @@
+# Makes Finch the file manager other programs reach through D-Bus
+# (org.freedesktop.FileManager1: "Show in folder", Feishu's "Open folder").
+# build.sh writes a copy with the real path into output/; install it with
+#   cp output/finch-filemanager.service ~/.config/systemd/user/
+#   systemctl --user enable --now finch-filemanager.service
+[Unit]
+Description=Finch as org.freedesktop.FileManager1
+Requires=dbus.socket
+After=dbus.socket
+
+[Service]
+ExecStart=finch --service
+Restart=on-failure
+# The Finch windows it starts are not part of the service: leave them alone
+# when it is stopped or restarted.
+KillMode=process
+
+[Install]
+WantedBy=default.target
