@@ -12,7 +12,8 @@ from .archive import (Archive, Extract, SevenZip, ask_archive, ask_password,
                       is_archive, needs_sevenzip)
 from .tab import Tab, location_name
 from .transfer import Transfer
-from .util import confirm, launch_default, open_label, save_state, show_error
+from .util import (confirm, forget_recent, launch_default, open_label, real_file,
+                   save_state, show_error)
 
 
 VIEW_MODES = ("columns", "grid")
@@ -438,6 +439,13 @@ class FinchWindow(Gtk.ApplicationWindow):
             tab.reload()
         self.sidebar.refresh_usage()
 
+    def _on_listing_loaded(self, tab):
+        """One of `tab`'s listings was (re-)read: the counts may differ, and
+        a folder the path bar still shows may be gone."""
+        self._update_status()
+        if tab is self.tab:
+            self.pathbar.prune()
+
     def _on_location_changed(self, tab):
         """A tab moved: the title bar follows the current tab only."""
         if tab is self.tab:
@@ -557,8 +565,7 @@ class FinchWindow(Gtk.ApplicationWindow):
         if new_tab:
             self.open_tab(gfile, switch=False)
         else:
-            self.set_root(gfile)
-            self._focus_files()
+            self.tab.go_to(gfile)       # takes the focus to the right column
 
     def _on_path_entered(self, bar, text):
         gfile = Gio.File.new_for_commandline_arg(os.path.expanduser(text))
@@ -643,6 +650,8 @@ class FinchWindow(Gtk.ApplicationWindow):
                 else:
                     item(_("Compress…"), lambda: self.compress(gfiles, col.gfile), "package-x-generic-symbolic")
             menu.append(Gtk.SeparatorMenuItem())
+            if col.in_recent():
+                item(_("Remove from Recent"), col.remove_recent, "list-remove-symbolic")
             item(_("Move to Trash"), col.trash_item, "user-trash-symbolic")
             item(_("Delete"), col.delete_item, "edit-delete-symbolic")
         elif gfile is not None:
@@ -672,6 +681,8 @@ class FinchWindow(Gtk.ApplicationWindow):
                 item(_("Show in Nemo"), lambda: self.open_in_nemo(gfile), "system-file-manager-symbolic")
             item(_("Copy Path"), lambda: self.copy_path(gfile), "insert-link-symbolic")
             menu.append(Gtk.SeparatorMenuItem())
+            if col.in_recent():
+                item(_("Remove from Recent"), lambda: col.remove_recent(gfile), "list-remove-symbolic")
             item(_("Move to Trash"), lambda: col.trash_item(gfile), "user-trash-symbolic")
             item(_("Delete"), lambda: col.delete_item(gfile), "edit-delete-symbolic")
         else:
@@ -746,10 +757,12 @@ class FinchWindow(Gtk.ApplicationWindow):
             for gfile in files:
                 if gfile.get_uri_scheme() == "trash":
                     continue
+                real = real_file(gfile)     # dragged out of Recent: the file itself
                 try:
-                    gfile.trash(None)
+                    real.trash(None)
+                    forget_recent(gfile)
                 except GLib.Error as err:
-                    errors.append("%s: %s" % (gfile.get_basename(), err.message))
+                    errors.append("%s: %s" % (real.get_basename(), err.message))
             if errors:
                 show_error(self, _("Could not move to trash"), "\n".join(errors[:10]))
             return

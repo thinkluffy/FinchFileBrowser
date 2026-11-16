@@ -121,6 +121,12 @@ class Column(Listing):
     def _select_add(self, handle):
         self.view.get_selection().select_path(self._path(handle))
 
+    def _unselect_all(self):
+        self.view.get_selection().unselect_all()
+
+    def _reveal(self, handle):
+        self.view.scroll_to_cell(self._path(handle), None, False, 0, 0)
+
     def _item_at(self, x, y):
         bx, by = self.view.convert_widget_to_bin_window_coords(int(x), int(y))
         hit = self.view.get_path_at_pos(bx, by)

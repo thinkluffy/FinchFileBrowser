@@ -84,6 +84,30 @@ def launch_default(gfile, widget):
         show_error(widget.get_toplevel(), _("Could not open"), err.message)
 
 
+def real_file(gfile):
+    """The file an entry of recent:/// stands for; any other file is itself.
+    The entries are virtual (recent:///<hash>): the backend cannot trash
+    them, and deleting one only takes it off the list."""
+    if gfile.get_uri_scheme() != "recent":
+        return gfile
+    try:
+        info = gfile.query_info("standard::target-uri", Gio.FileQueryInfoFlags.NONE, None)
+    except GLib.Error:
+        return gfile
+    uri = info.get_attribute_string("standard::target-uri")
+    return Gio.File.new_for_uri(uri) if uri else gfile
+
+
+def forget_recent(gfile):
+    """The file behind the recent:/// entry `gfile` is gone: take the entry
+    off the list now rather than wait for the backend to notice."""
+    if gfile.get_uri_scheme() == "recent":
+        try:
+            gfile.delete(None)
+        except GLib.Error:
+            pass
+
+
 def delete_recursive(gfile):
     """Permanently delete a file or directory tree (symlinks are not followed)."""
     info = gfile.query_info("standard::type", Gio.FileQueryInfoFlags.NOFOLLOW_SYMLINKS, None)

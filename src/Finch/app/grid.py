@@ -189,6 +189,12 @@ class Grid(Listing):
         self._set_selection(self._selected | {idx},
                             self._cursor if self._cursor is not None else idx)
 
+    def _unselect_all(self):
+        self._set_selection((), None)
+
+    def _reveal(self, idx):
+        self._scroll_to(idx)
+
     def _select_range(self, idx):
         """Select from the anchor to `idx`, which becomes the cursor."""
         anchor = self._anchor if self._anchor is not None else idx

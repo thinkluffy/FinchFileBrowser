@@ -14,7 +14,8 @@ import os
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
 from . import ATTRS, C_FILE, C_INFO, C_ISDIR, C_NAME, _, ngettext
-from .util import confirm, delete_recursive, natural_key, show_error
+from .util import (confirm, delete_recursive, forget_recent, natural_key, real_file,
+                   show_error)
 
 # Sort modes a listing understands; the window keeps the current one.
 SORT_MODES = ("name", "modified", "size", "kind")
@@ -153,6 +154,13 @@ class Listing(Gtk.Box):
         raise NotImplementedError
 
     def _select_add(self, handle):
+        raise NotImplementedError
+
+    def _unselect_all(self):
+        raise NotImplementedError
+
+    def _reveal(self, handle):
+        """Scroll the row `handle` into view."""
         raise NotImplementedError
 
     def _item_at(self, x, y):
@@ -380,6 +388,23 @@ class Listing(Gtk.Box):
         if len(self.store) and not self.selected_all()[0]:
             self._select_only(0)
 
+    def handle_of(self, gfile):
+        """The handle of `gfile`'s row, or None when it is not listed."""
+        return next((i for i, row in enumerate(self.store) if row[C_FILE].equal(gfile)), None)
+
+    def clear_selection(self):
+        """Unselect everything without telling the tab: for the tab itself,
+        when it goes back to this listing's folder."""
+        self._quiet = True
+        self._unselect_all()
+        self._quiet = False
+
+    def reveal_selection(self):
+        """Scroll the first selected row into view."""
+        handles = self._selected_handles()
+        if handles:
+            self._reveal(handles[0])
+
     # -- rename --------------------------------------------------------------
     def _commit_rename(self, handle, new_name):
         row = self.store[handle]
@@ -410,6 +435,9 @@ class Listing(Gtk.Box):
 
     def is_trash_root(self):
         return self.in_trash() and self.gfile.get_parent() is None
+
+    def in_recent(self):
+        return self.gfile.get_uri_scheme() == "recent"
 
     def _neighbour_of(self, gfiles):
         """The row to select once `gfiles` are gone: the first one after the
@@ -443,10 +471,12 @@ class Listing(Gtk.Box):
             return
         errors = []
         for g in gfiles:
+            real = real_file(g)         # in Recent: the file the entry stands for
             try:
-                g.trash(None)
+                real.trash(None)
+                forget_recent(g)
             except GLib.Error as err:
-                errors.append("%s: %s" % (g.get_basename(), err.message))
+                errors.append("%s: %s" % (real.get_basename(), err.message))
         self._finish_batch(gfiles, _("Could not move to trash"), errors)
 
     def delete_item(self, gfile=None):
@@ -455,7 +485,8 @@ class Listing(Gtk.Box):
         if not gfiles:
             return
         n = len(gfiles)
-        title = (_("Permanently delete “%s”?") % gfiles[0].get_basename() if n == 1
+        reals = [real_file(g) for g in gfiles]
+        title = (_("Permanently delete “%s”?") % reals[0].get_basename() if n == 1
                  else ngettext("Permanently delete %d item?",
                                "Permanently delete %d items?", n) % n)
         if not confirm(self.get_toplevel(), title,
@@ -466,15 +497,31 @@ class Listing(Gtk.Box):
                        _("_Delete")):
             return
         errors = []
-        for g in gfiles:
+        for g, real in zip(gfiles, reals):
             try:
                 if self.is_trash_root():
                     g.delete(None)      # the trash backend removes the whole item
                 else:
-                    delete_recursive(g)
+                    delete_recursive(real)
+                    forget_recent(g)
             except GLib.Error as err:
-                errors.append("%s: %s" % (g.get_basename(), err.message))
+                errors.append("%s: %s" % (real.get_basename(), err.message))
         self._finish_batch(gfiles, _("Could not delete"), errors)
+
+    def remove_recent(self, gfile=None):
+        """Take the selection (or `gfile`) off the recently used list; the
+        files themselves stay where they are."""
+        gfiles = self._targets(gfile)
+        if not gfiles or not self.in_recent():
+            return
+        errors = []
+        for g in gfiles:
+            name = real_file(g).get_basename()
+            try:
+                g.delete(None)          # all the recent backend's delete does
+            except GLib.Error as err:
+                errors.append("%s: %s" % (name, err.message))
+        self._finish_batch(gfiles, _("Could not remove from Recent"), errors)
 
     def restore_item(self, gfile=None):
         """Move top-level trash entries back to where they were deleted from."""

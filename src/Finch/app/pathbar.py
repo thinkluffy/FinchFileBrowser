@@ -81,7 +81,7 @@ class PathBar(Gtk.Box):
     def set_location(self, gfile):
         """Show `gfile`: the entry's text follows it; the button row keeps
         its deeper folders when `gfile` is one of those already shown (going
-        up), otherwise it is rebuilt."""
+        up) and they still exist, otherwise it is rebuilt."""
         self.location = gfile
         self.entry.set_text(gfile.get_parse_name())
         self.entry.set_position(-1)
@@ -89,7 +89,42 @@ class PathBar(Gtk.Box):
             self._rebuild(gfile)
         for g, btn in self._crumbs:
             self._set_active(btn, g.equal(gfile))
+        self.prune()
         GLib.idle_add(self._scroll_to_current)
+
+    def prune(self):
+        """Drop the folders kept below the current one that are no longer
+        there (deleted, moved away or renamed since). Each is asked for
+        without blocking; one found missing goes with all those below it.
+        Called on every location change and whenever a listing is re-read,
+        which is when something may have disappeared."""
+        if self.location is None:
+            return
+        deeper = False
+        for g, btn in self._crumbs:
+            if deeper:
+                g.query_info_async("standard::type", Gio.FileQueryInfoFlags.NONE,
+                                   GLib.PRIORITY_DEFAULT, None, self._on_crumb_checked, btn)
+            elif g.equal(self.location):
+                deeper = True
+
+    def _on_crumb_checked(self, gfile, result, btn):
+        try:
+            gfile.query_info_finish(result)
+            return
+        except GLib.Error as err:
+            if not err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.NOT_FOUND):
+                return                      # unreachable just now: keep it
+        # The row may have been rebuilt, or the location moved, meanwhile.
+        idx = next((i for i, (_g, b) in enumerate(self._crumbs) if b is btn), None)
+        here = next((i for i, (g, _b) in enumerate(self._crumbs)
+                     if self.location is not None and g.equal(self.location)), None)
+        if idx is None or here is None or idx <= here:
+            return
+        for _g, b in self._crumbs[idx:]:
+            b.destroy()
+        del self._crumbs[idx:]
+        self._update_sliders()
 
     def show_entry(self):
         """Ctrl+L: the entry, with the path selected, until it is left."""

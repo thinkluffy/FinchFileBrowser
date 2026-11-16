@@ -61,6 +61,9 @@ class Tab(Gtk.Box):
         # down to the item. `_target` is the item still being re-opened.
         self._history, self._hist_pos = [], -1
         self._target = None
+        # go_to() is on its way down to `_target`: the column the target's
+        # node is in gets the focus once it is there.
+        self._focus_target = False
 
         self.colbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.hsw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
@@ -126,6 +129,7 @@ class Tab(Gtk.Box):
         if record:
             self._record(gfile, select or gfile)
         self._target = select
+        self._focus_target = False
         for col in self.columns:
             col.destroy()
         self.columns = []
@@ -133,6 +137,53 @@ class Tab(Gtk.Box):
         self.add_column(gfile, select=_child_towards(gfile, select) if select else None,
                         focus=focus)
         self._set_location(gfile)
+
+    def go_to(self, gfile):
+        """Go to the folder `gfile`, one of the levels of the path bar. The
+        columns stay where they can, as if its node had been clicked in the
+        column it is in: a folder that already has a column is gone back to
+        (the columns to its right close and nothing stays selected in it),
+        one further down than the last column is opened down to. Only a
+        folder outside the left-most column's, and any folder in the icon
+        view, becomes the left-most column itself."""
+        root = self.root
+        if self.grid_mode or root is None or not (gfile.equal(root) or gfile.has_prefix(root)):
+            self._show_alone(gfile)
+            return
+        col = self.column_for(gfile)
+        if col is not None:
+            self._record(root, gfile)
+            self._target, self._focus_target = None, False
+            col.clear_selection()
+            self.truncate_after(col)
+            # The focus goes where the folder's node is: the column to the
+            # left, which has it selected (the left-most column has none).
+            idx = self.columns.index(col)
+            holder = self.columns[idx - 1] if idx else col
+            holder.view.grab_focus()
+            holder.reveal_selection()
+            self._set_location(gfile)
+            self.win._update_status()
+            return
+        # Below the last column that is on the way: select the next node
+        # there; the columns then open one by one down to the folder, as
+        # they do for a history entry.
+        last = [c for c in self.columns if gfile.has_prefix(c.gfile)][-1]
+        child = _child_towards(last.gfile, gfile)
+        handle = last.handle_of(child)
+        if handle is None:              # hidden, or gone: no node to select
+            self._show_alone(gfile)
+            return
+        self._record(root, gfile)
+        self._target = gfile
+        self._focus_target = not child.equal(gfile)
+        last.view.grab_focus()
+        last.clear_selection()          # so that selecting always tells us
+        last._select_only(handle)
+
+    def _show_alone(self, gfile):
+        self.set_root(gfile)
+        self.columns[0].view.grab_focus()
 
     def set_view_mode(self):
         """The window's view mode changed: show the same place in the new
@@ -160,7 +211,7 @@ class Tab(Gtk.Box):
         # belongs to that window from then on.
         col.connect("context-menu", self._on_context_menu)
         col.connect("open-new-tab", lambda c, g: self.win.open_tab(g, switch=False))
-        col.connect("loaded", lambda *_args: self.win._update_status())
+        col.connect("loaded", lambda *_args: self.win._on_listing_loaded(self))
         col.connect("files-dropped",
                     lambda c, files, dest, move: self.win.drop_files(files, dest, move))
         self.colbox.pack_start(col, self.grid_mode, True, 0)
@@ -297,7 +348,9 @@ class Tab(Gtk.Box):
         elif info.get_file_type() == Gio.FileType.DIRECTORY:
             if target is None:
                 self._record(self.root, gfile)
-            self.add_column(gfile, select=nxt)
+            # go_to() on its last step: this column holds the folder's node.
+            focus = self._focus_target and nxt is not None and nxt.equal(target)
+            self.add_column(gfile, select=nxt, focus=focus)
             self._set_location(gfile)
         else:
             if target is None and self._history:
@@ -308,12 +361,14 @@ class Tab(Gtk.Box):
             # The location is always a folder: a file selected in a
             # column leaves the title and path bar on that column's folder.
             self._set_location(col.gfile)
+        if self._target is None:
+            self._focus_target = False
         self.win._update_status()
 
     def _on_selection_changed(self, col, gfiles, infos):
         """Several items selected in `col`: nothing opens to the right but a
         summary of them, and the location history is left alone."""
-        self._target = None
+        self._target, self._focus_target = None, False
         if not self.grid_mode:
             self.truncate_after(col)
             self.show_preview(lambda pv: pv.set_files(gfiles, infos))
