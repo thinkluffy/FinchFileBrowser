@@ -18,7 +18,7 @@ The whole suite takes about ten minutes: every test gets a fresh environment.
   click of yours cannot land in the application under test.
 - **Session.** Its own D-Bus session, hence its own gvfs: the recently used
   list, the trash and anything mounted are private to the test.
-- **Files.** Config, data and runtime directories in `~/finch-sandbox.XXXX`
+- **Files.** Config, data, cache and runtime directories in `~/finch-sandbox.XXXX`
   (`$FINCH_SANDBOX`, removed afterwards). It is in the home folder so that
   trashing a file there stays on one filesystem. `~/.config/finch`, the real
   recently used list and the real trash are never read or written.
@@ -47,6 +47,8 @@ seconds (default 150).
 | `test_start_home` | starting without arguments |
 | `test_tabs`, `test_tabdrop`, `test_detach` | tabs: opening, switching, dragging between windows |
 | `test_grid`, `test_emblems` | icon view and its emblems |
+| `test_view_switch` | switching between columns and icon view stays in the current folder, and back / forward across the two |
+| `test_apk` | Android packages: launcher icon in the preview pane and the icon view, package name and version in the preview's details |
 | `test_multi`, `test_sort` | multi-selection, sorting |
 | `test_dnd` | where drops go and which are refused |
 | `test_recent_delete` | trash / delete / remove in Recent |
@@ -59,6 +61,9 @@ seconds (default 150).
 `computer:///` for an entry that points elsewhere, and a zip opened through
 gvfs' archive backend for a location that has to be mounted. Password
 prompts and real SMB shares are not covered.
+
+`test_apk` reads four small packages in `data/`, built by the real `aapt2`
+(`data/make_apks.py` rebuilds them; needs the Android SDK).
 
 `test_emblems.py` and `test_about.py` save a screenshot when given a file
 name: `tests/run.sh -- python3 tests/test_emblems.py /tmp/emblems.png`.

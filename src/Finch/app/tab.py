@@ -8,8 +8,9 @@ sort), the context menu, drops, and to tell it the location changed.
 
 Two looks, the window's `view_mode`: "columns" (Miller columns, each
 folder selected opens the next one to its right, a file the preview) and
-"grid" (one icon grid of the root folder filling the strip; a
-double-clicked folder becomes the root; no preview pane).
+"grid" (one icon grid filling the strip, of the folder the columns were in;
+a double-clicked folder takes its place; no preview pane). Switching looks
+stays in the same folder, see set_view_mode().
 """
 from gi.repository import Gio, GLib, Gtk, Pango
 
@@ -68,12 +69,18 @@ class Tab(Gtk.Box):
         self.preview = None
         # The item the title bar names: the deepest folder or file shown.
         self.location = root
-        # Finder-style history of *locations*: (root, deepest item shown).
-        # Changing the root and selecting a folder in a column both add an
-        # entry; back / forward restore the root and re-open the columns
-        # down to the item. `_target` is the item still being re-opened.
+        # Finder-style history of *locations*: (root, deepest item shown,
+        # recorded in the icon view?). Changing the root and selecting a
+        # folder in a column both add an entry; back / forward restore the
+        # root and re-open the columns down to the item. In the icon view
+        # the root is the folder shown and the item what is selected in it
+        # (or the folder again). `_target` is the item still being re-opened.
         self._history, self._hist_pos = [], -1
         self._target = None
+        # The left-most column the columns had when the icon view took
+        # over, while the grid is still inside it: the columns come back
+        # from there.
+        self._columns_root = None
         # go_to() is on its way down to `_target`: the column the target's
         # node is in gets the focus once it is there.
         self._focus_target = False
@@ -141,6 +148,10 @@ class Tab(Gtk.Box):
         below it: the columns are re-opened level by level down to it."""
         if record:
             self._record(gfile, select or gfile)
+        base = self._columns_root
+        if (self.grid_mode and base is not None
+                and not (gfile.equal(base) or gfile.has_prefix(base))):
+            self._columns_root = None       # the grid has left those columns
         self._target = select
         self._focus_target = False
         for col in self.columns:
@@ -223,15 +234,41 @@ class Tab(Gtk.Box):
         gfile.mount_mountable(Gio.MountMountFlags.NONE, mount_operation(self.win),
                               None, on_mounted)
 
+    @staticmethod
+    def _in_grid(leaf):
+        """How the icon view shows `leaf`, the deepest item of some
+        columns: (folder, item to select in it or None). A folder is shown
+        itself, anything else selected in its folder."""
+        parent = leaf.get_parent()
+        if parent is None or (leaf.query_file_type(Gio.FileQueryInfoFlags.NONE, None)
+                              == Gio.FileType.DIRECTORY):
+            return leaf, None
+        return parent, leaf
+
     def set_view_mode(self):
         """The window's view mode changed: show the same place in the new
-        look, keeping the selection where it makes sense."""
+        look. The grid shows the folder the columns were in (the location:
+        the last column's, not the left-most one's) with the file selected
+        there; the columns come back as they were, opened from the same
+        left-most column down to where the grid is now."""
         root = self.root
         if root is None:
             return
         select = self.columns[-1].selected()[0]
-        if select is None and not self.location.equal(root):
-            select = self.location
+        if self.grid_mode:
+            self._columns_root = root
+            if self._target is not None:            # columns still opening down to it
+                folder, select = self._in_grid(self._target)
+            else:
+                folder = self.location
+                parent = select.get_parent() if select is not None else None
+                if parent is None or not parent.equal(folder):
+                    select = None
+            self.set_root(folder, select=select, record=False)
+            return
+        base, self._columns_root = self._columns_root, None
+        if base is not None and root.has_prefix(base):
+            root, select = base, select or root
         self.set_root(root, select=select, record=False)
 
     def add_column(self, gfile, select=None, focus=False):
@@ -289,19 +326,28 @@ class Tab(Gtk.Box):
     def _record(self, root, leaf):
         """Append the location (root, leaf) to the history, dropping any
         forward entries; a repeat of the current location is not added."""
+        grid = self.grid_mode
         del self._history[self._hist_pos + 1:]
         if self._history:
-            last_root, last_leaf = self._history[-1]
-            if last_root.equal(root) and last_leaf.equal(leaf):
+            last_root, last_leaf, last_grid = self._history[-1]
+            # A folder on its own is the same place in either look.
+            if (last_root.equal(root) and last_leaf.equal(leaf)
+                    and (last_grid == grid or leaf.equal(root))):
                 return
-        self._history.append((root, leaf))
+        self._history.append((root, leaf, grid))
         del self._history[:-MAX_HISTORY]
         self._hist_pos = len(self._history) - 1
 
     def _restore(self, pos):
         self._hist_pos = pos
-        root, leaf = self._history[pos]
-        self.set_root(root, select=None if leaf.equal(root) else leaf, record=False)
+        root, leaf, in_grid = self._history[pos]
+        select = None if leaf.equal(root) else leaf
+        if self.grid_mode and not in_grid and select is not None:
+            # A place visited in the columns: the grid shows the folder
+            # they ended in, and the columns come back from their root.
+            self._columns_root = root
+            root, select = self._in_grid(leaf)
+        self.set_root(root, select=select, record=False)
 
     def _set_location(self, gfile):
         self.location = gfile
@@ -395,7 +441,7 @@ class Tab(Gtk.Box):
             if target is None and self._history:
                 # Remember the file with the current location, so that
                 # coming back here shows its preview again.
-                self._history[self._hist_pos] = (self.root, gfile)
+                self._history[self._hist_pos] = (self.root, gfile, False)
             self.show_preview(lambda pv: pv.set_file(gfile, info))
             # The location is always a folder: a file selected in a
             # column leaves the title and path bar on that column's folder.

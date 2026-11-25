@@ -820,10 +820,12 @@ class FinchWindow(Gtk.ApplicationWindow):
         for archive in archives:
             self._queue_job(Extract(archive, dest_dir, password), _("Could not extract"))
 
-    def _queue_job(self, job, error_title):
+    def _queue_job(self, job, error_title, start=True):
+        """Add `job` to the queue. It is started at once when nothing else is
+        running, unless the caller is about to start the next job itself."""
         job.error_title = error_title
         self._jobs.append(job)
-        if len(self._jobs) == 1:
+        if start and len(self._jobs) == 1:
             self._run_next_job()
 
     def _run_next_job(self):
@@ -881,7 +883,10 @@ class FinchWindow(Gtk.ApplicationWindow):
             # An encrypted archive (or a wrong password): ask and go again.
             password = ask_password(self, job.archive.get_basename())
             if password is not None:
-                self.extract([job.archive], job.dest_dir, password)
+                # Only queued: the line below starts it. Started here as
+                # well, it would run twice and unpack the archive twice.
+                self._queue_job(Extract(job.archive, job.dest_dir, password),
+                                job.error_title, start=False)
         self._run_next_job()
 
     def show_about(self):

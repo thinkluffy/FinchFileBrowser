@@ -10,7 +10,7 @@
 #   - a nested X server (Xephyr), whose window is minimised at once so that a
 #     stray click of yours cannot land in the application under test;
 #   - its own D-Bus session, so gvfs (recent files, trash, mounts) is private;
-#   - its own config, data and runtime directories in ~/finch-sandbox.XXXX
+#   - its own config, data, cache and runtime directories in ~/finch-sandbox.XXXX
 #     ($FINCH_SANDBOX; in the home folder so that trashing a file there stays
 #     on one filesystem). Nothing reads or writes ~/.config/finch, the real
 #     recently-used list or the real trash.
@@ -69,6 +69,7 @@ in_sandbox() {
         export FINCH_SANDBOX="$SANDBOX" XDG_CONFIG_HOME="$SANDBOX/config" XDG_DATA_HOME="$SANDBOX/data"
         export XDG_RUNTIME_DIR="$SANDBOX/run" GVFS_DISABLE_FUSE=1
         export TMPDIR="$SANDBOX/tmp"    # what tempfile.mkdtemp() makes goes with the sandbox
+        export XDG_CACHE_HOME="$SANDBOX/cache"  # thumbnails written by a test stay out of ~/.cache
         # The limit is in here, so that the clean-up always runs.
         if [ -n "$log" ]; then
             timeout "$LIMIT" dbus-run-session -- "$@" >"$log" 2>&1

@@ -11,7 +11,9 @@ for PDFs and videos only, and reads any size: a small entry made by Nemo is
 a placeholder to show while the full rendering is made.
 
 `meta` dicts use the keys "dims" ((width, height)), "pages" and "duration"
-(seconds); only the known ones are present.
+(seconds); only the known ones are present. What the preview reads from an
+Android package ("package", "version", "code") is in them too, but is not
+written to disk: the spec has no chunk for it and it is quick to read again.
 
 Thumbnailer, at the end, serves the icon grid: small pictures made on a
 worker thread from the same caches (and, for images, from the file). Its
@@ -26,7 +28,7 @@ from collections import OrderedDict
 
 from gi.repository import GdkPixbuf, GLib
 
-from . import MAX_IMAGE_PREVIEW
+from . import MAX_IMAGE_PREVIEW, apk
 
 MEMORY_ENTRIES = 32                  # at most ~2 MB each
 # Freedesktop size names, largest first, with the bound of their longer side.
@@ -185,13 +187,19 @@ def _fit(pixbuf, bound):
 
 def _grid_picture(gfile, path, ctype, mtime, size):
     """A picture of the file for the grid: any cached thumbnail, else for an
-    image a fresh rendering (kept in the disk cache for next time). PDFs and
-    videos are only shown from the cache: rendering them is slow, and the
-    preview pane writes an entry the first time one is looked at."""
+    image a fresh rendering and for an Android package its launcher icon
+    (both kept in the disk cache for next time). PDFs and videos are only
+    shown from the cache: rendering them is slow, and the preview pane
+    writes an entry the first time one is looked at."""
     uri = gfile.get_uri()
     cached = disk_lookup(uri, mtime)
     if cached is not None:
         return cached[0]
+    if ctype == apk.CONTENT_TYPE and path:
+        pixbuf = apk.icon(path, dict(SIZES)[GRID_WRITE_SIZE])
+        if pixbuf is not None:
+            disk_save(uri, mtime, size, pixbuf, {}, GRID_WRITE_SIZE)
+        return pixbuf
     if not (ctype.startswith("image/") and path and size <= MAX_IMAGE_PREVIEW):
         return None
     bound = dict(SIZES)[GRID_WRITE_SIZE]

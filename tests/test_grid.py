@@ -182,7 +182,7 @@ def s12():
     mode(win, "grid"); return later(s13)
 def s13():
     win = S["win"]; g = win.columns[0]
-    check("grid shows the root with the deepest child selected", isinstance(g, Grid) and g.gfile.equal(F()) and names(g) == ["Alpha"])
+    check("grid shows the folder the columns were in, not the left-most one", isinstance(g, Grid) and g.gfile.equal(F("Alpha", "inner")) and names(g) == [], "%s %s" % (g.gfile.get_path(), names(g)))
     win.save_window_state()
     # where the application under test keeps it (tests/run.sh gives it a config folder of its own)
     st = json.load(open(os.path.join(GLib.get_user_config_dir(), "finch", "state.json")))

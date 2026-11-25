@@ -160,12 +160,16 @@ def s_menu2():
     # window flow: encrypted archive → password prompt (stood in) → retried and extracted
     asked = []
     winmod.ask_password = lambda parent, name: (asked.append(name), "hunter2")[1]
+    S_before = set(os.listdir(dest))
     w.extract([F("dest", "secret.zip")], D)
     check("window: job queued", len(w._jobs) == 1 and w.progress_box.get_visible())
-    GLib.timeout_add(2500, lambda: (s_end(asked), False)[1])
+    GLib.timeout_add(2500, lambda: (s_end(asked, S_before), False)[1])
     return False
-def s_end(asked):
+def s_end(asked, before):
     w = win(); col = w.columns[0]
+    new = sorted(set(os.listdir(dest)) - before)
+    # the retry used to be started twice: two copies, or an error when both took the same name
+    check("window: the archive was unpacked once", len(new) == 1 and not leftovers(), repr(new))
     check("window: password was asked for the archive", asked == ["secret.zip"], repr(asked))
     sel = col.selected()[0]
     check("window: retried with password, result selected", not w._jobs and sel is not None and sel.get_basename().startswith("proj (copy"), repr(sel and sel.get_basename()))

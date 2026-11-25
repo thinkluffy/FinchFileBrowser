@@ -14,6 +14,7 @@ except (ImportError, ValueError):
 
 from . import (MAX_IMAGE_PREVIEW, MAX_PREVIEW_CONTENT, MAX_PREVIEW_MEDIA,
                MAX_TEXT_PREVIEW, MIN_PREVIEW_MEDIA, _, ngettext, thumbs)
+from . import apk
 from .util import is_jump, is_text_like, jump_target
 
 
@@ -95,7 +96,9 @@ def _video_info(gfile):
 
 # The facts the worker reads for each kind of file (keys of a `meta` dict,
 # see thumbs), and how it gets them and the picture.
-_FACTS = {"image": ("dims",), "pdf": ("pages",), "video": ("duration", "dims")}
+_FACTS = {"image": ("dims",), "pdf": ("pages",), "video": ("duration", "dims"),
+          "apk": ("package",)}
+APK_ICON_SIZE = 256             # an Android launcher icon is drawn this big at most
 
 
 def _facts(kind, gfile, path):
@@ -114,6 +117,8 @@ def _facts(kind, gfile, path):
             meta["duration"] = duration
         if dims:
             meta["dims"] = dims
+    elif kind == "apk":
+        meta.update(apk.info(path))     # "package", "version", "code"
     return meta
 
 
@@ -131,6 +136,8 @@ def _picture(kind, path, size, meta):
         return _pdf_first_page(path)
     if kind == "video":
         return _video_frame(path)
+    if kind == "apk":
+        return apk.icon(path, APK_ICON_SIZE)        # the application's own icon
     return None
 
 
@@ -327,6 +334,8 @@ class Preview(Gtk.Box):
             kind, pending = "pdf", [_("Pages")]
         elif path and ctype.startswith("video/"):
             kind, pending = "video", [_("Duration"), _("Dimensions")]
+        elif path and ctype == apk.CONTENT_TYPE:
+            kind, pending = "apk", [_("Package"), _("Version")]
         elif is_text_like(ctype):
             kind = "text"
         self.name.set_text(info.get_display_name() or info.get_name())
@@ -424,7 +433,7 @@ class Preview(Gtk.Box):
                 pixbuf = standin            # better than the icon
         if pixbuf is not None:
             thumbs.memory_put(key, pixbuf, meta)
-            if rendered and kind in ("pdf", "video"):
+            if rendered and kind in ("pdf", "video", "apk"):
                 thumbs.disk_save(uri, mtime, size, pixbuf, meta)
         return meta, pixbuf
 
@@ -449,6 +458,13 @@ class Preview(Gtk.Box):
             values[_("Pages")] = ngettext("%d page", "%d pages", meta["pages"]) % meta["pages"]
         if "duration" in meta:
             values[_("Duration")] = _format_duration(meta["duration"])
+        if "package" in meta:
+            values[_("Package")] = meta["package"]
+        if "version" in meta and "code" in meta:
+            # the name people see and the number Android compares: "4.11.0 (41100)"
+            values[_("Version")] = "%s (%d)" % (meta["version"], meta["code"])
+        elif "version" in meta or "code" in meta:
+            values[_("Version")] = str(meta.get("version", meta.get("code")))
         if pending:
             # Fill in the rows that were waiting; drop those with no value.
             rows = [(k, values[k]) if k in pending else (k, v)

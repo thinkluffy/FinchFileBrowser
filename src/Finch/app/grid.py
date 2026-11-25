@@ -18,7 +18,7 @@ import time
 import cairo
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from . import C_FILE, C_INFO, C_ISDIR, C_NAME, archive, thumbs
+from . import C_FILE, C_INFO, C_ISDIR, C_NAME, apk, archive, thumbs
 from .listing import DND_TARGETS, Listing, _dragging
 
 ICON_SIZE = 64
@@ -406,7 +406,7 @@ class Grid(Listing):
         made otherwise."""
         ctype = info.get_content_type() or ""
         if not (ctype.startswith("image/") or ctype.startswith("video/")
-                or ctype == "application/pdf"):
+                or ctype in ("application/pdf", apk.CONTENT_TYPE)):
             return None
         mtime, size = info.get_attribute_uint64("time::modified"), info.get_size()
         key = thumbs.stamp(gfile, mtime, size)

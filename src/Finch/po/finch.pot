@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: finch\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-25 18:30+0800\n"
+"POT-Creation-Date: 2026-11-25 22:40+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -198,66 +198,74 @@ msgstr ""
 msgid "File System"
 msgstr ""
 
-#: ../app/preview.py:195
+#: ../app/preview.py:202
 msgid "Information"
 msgstr ""
 
 #. TRANSLATORS: image size in pixels, e.g. "1920 × 1080"
-#: ../app/preview.py:325 ../app/preview.py:329 ../app/preview.py:447
+#: ../app/preview.py:332 ../app/preview.py:336 ../app/preview.py:456
 msgid "Dimensions"
 msgstr ""
 
-#: ../app/preview.py:327 ../app/preview.py:449
+#: ../app/preview.py:334 ../app/preview.py:458
 msgid "Pages"
 msgstr ""
 
-#: ../app/preview.py:329 ../app/preview.py:451
+#: ../app/preview.py:336 ../app/preview.py:460
 msgid "Duration"
 msgstr ""
 
-#: ../app/preview.py:336
+#: ../app/preview.py:338 ../app/preview.py:462
+msgid "Package"
+msgstr ""
+
+#: ../app/preview.py:338 ../app/preview.py:465 ../app/preview.py:467
+msgid "Version"
+msgstr ""
+
+#: ../app/preview.py:345
 msgid "Network location"
 msgstr ""
 
-#: ../app/preview.py:341
+#: ../app/preview.py:350
 msgid "Created"
 msgstr ""
 
-#: ../app/preview.py:342
+#: ../app/preview.py:351
 msgid "Modified"
 msgstr ""
 
-#: ../app/preview.py:348 ../app/preview.py:350
+#: ../app/preview.py:357 ../app/preview.py:359
 msgid "Links to"
 msgstr ""
 
-#: ../app/preview.py:447
+#: ../app/preview.py:456
 #, python-format
 msgid "%d × %d"
 msgstr ""
 
-#: ../app/preview.py:449
+#: ../app/preview.py:458
 #, python-format
 msgid "%d page"
 msgid_plural "%d pages"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../app/preview.py:477 ../app/window.py:508
+#: ../app/preview.py:493 ../app/window.py:508
 #, python-format
 msgid "%d item"
 msgid_plural "%d items"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../app/preview.py:480
+#: ../app/preview.py:496
 #, python-format
 msgid "%d folder"
 msgid_plural "%d folders"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../app/preview.py:482
+#: ../app/preview.py:498
 #, python-format
 msgid "%d file"
 msgid_plural "%d files"
@@ -265,16 +273,16 @@ msgstr[0] ""
 msgstr[1] ""
 
 #. TRANSLATORS: separator between the parts of the status line
-#: ../app/preview.py:483 ../app/window.py:525 ../app/window.py:865
+#: ../app/preview.py:499 ../app/window.py:525 ../app/window.py:867
 msgid ", "
 msgstr ""
 
-#: ../app/preview.py:490
+#: ../app/preview.py:506
 #, python-format
 msgid "and %d more…"
 msgstr ""
 
-#: ../app/preview.py:491
+#: ../app/preview.py:507
 msgid "Items"
 msgstr ""
 
@@ -294,7 +302,7 @@ msgstr ""
 msgid "Bookmarks"
 msgstr ""
 
-#: ../app/sidebar.py:114 ../app/sidebar.py:132 ../app/tab.py:44
+#: ../app/sidebar.py:114 ../app/sidebar.py:132 ../app/tab.py:45
 msgid "Network"
 msgstr ""
 
@@ -308,19 +316,19 @@ msgstr ""
 msgid "%(used)s used of %(size)s (%(percent).0f%%)"
 msgstr ""
 
-#: ../app/tab.py:44
+#: ../app/tab.py:45
 msgid "Trash"
 msgstr ""
 
-#: ../app/tab.py:44
+#: ../app/tab.py:45
 msgid "Recent"
 msgstr ""
 
-#: ../app/tab.py:45
+#: ../app/tab.py:46
 msgid "Computer"
 msgstr ""
 
-#: ../app/tab.py:221 ../app/util.py:84 ../app/window.py:911
+#: ../app/tab.py:232 ../app/util.py:84 ../app/window.py:916
 msgid "Could not open"
 msgstr ""
 
@@ -565,36 +573,36 @@ msgstr ""
 msgid "Could not extract"
 msgstr ""
 
-#: ../app/window.py:846
+#: ../app/window.py:848
 msgid "Cancelling…"
 msgstr ""
 
 #. TRANSLATORS: progress, e.g. "1.2 GB of 4.5 GB"
-#: ../app/window.py:863
+#: ../app/window.py:865
 #, python-format
 msgid "%s of %s"
 msgstr ""
 
-#: ../app/window.py:868
+#: ../app/window.py:870
 #, python-format
 msgid "(%d more waiting)"
 msgid_plural "(%d more waiting)"
 msgstr[0] ""
 msgstr[1] ""
 
-#: ../app/window.py:891
+#: ../app/window.py:896
 msgid "A Finder-style column view file browser"
 msgstr ""
 
 #. TRANSLATORS: credit line in the About dialog; put your name here
-#: ../app/window.py:895
+#: ../app/window.py:900
 msgid "translator-credits"
 msgstr ""
 
-#: ../app/window.py:933
+#: ../app/window.py:938
 msgid "Could not open terminal"
 msgstr ""
 
-#: ../app/window.py:934
+#: ../app/window.py:939
 msgid "Only local folders can be opened in a terminal."
 msgstr ""
