@@ -14,7 +14,7 @@ except (ImportError, ValueError):
 
 from . import (MAX_IMAGE_PREVIEW, MAX_PREVIEW_CONTENT, MAX_PREVIEW_MEDIA,
                MAX_TEXT_PREVIEW, MIN_PREVIEW_MEDIA, _, ngettext, thumbs)
-from .util import is_text_like
+from .util import is_jump, is_text_like, jump_target
 
 
 # How long the media box stays empty before the file's icon stands in for
@@ -331,7 +331,10 @@ class Preview(Gtk.Box):
             kind = "text"
         self.name.set_text(info.get_display_name() or info.get_name())
         kind_name = Gio.content_type_get_description(ctype) or ctype
-        if info.get_file_type() != Gio.FileType.DIRECTORY:   # a folder's size says nothing
+        jump = jump_target(info)        # a computer or share of the network list
+        if is_jump(info):
+            kind_name = _("Network location")
+        elif info.get_file_type() != Gio.FileType.DIRECTORY:   # a folder's size says nothing
             kind_name = "%s - %s" % (kind_name, GLib.format_size(size))
         self.summary.set_text(kind_name)
         rows = [(label, "…") for label in pending]
@@ -343,6 +346,8 @@ class Preview(Gtk.Box):
                   if info.has_attribute("standard::symlink-target") else None)
         if target:
             rows.append((_("Links to"), target))
+        if jump is not None:
+            rows.append((_("Links to"), jump.get_parse_name()))
         self._set_details(rows)
 
         self._icon = info.get_icon()

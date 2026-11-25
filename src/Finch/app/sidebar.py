@@ -1,16 +1,27 @@
-"""GtkPlacesSidebar with Finder-style section titles and device usage bars.
+"""GtkPlacesSidebar with Finder-style section titles, device usage bars and
+a Network section.
 
-The sidebar's rows are a private GTK row class; the only things relied on
-here are its "section-type" property (GtkPlacesSectionType, 1..6) and the
-"uri" property of device rows.
+The sidebar's rows are a private GTK row class; the things relied on here
+are its "section-type" (GtkPlacesSectionType) and "place-type" properties,
+the "uri" property of device rows, and that a row's "label", "start-icon"
+and "tooltip" can be set.
+
+GtkPlacesSidebar has no row for browsing the network (GTK expects the
+application's "Other Locations" view to do that, and showing that row
+hides the internal drives). Its "Connect to Server" row, however, sits at
+the very end, emits a signal of its own and does nothing else: it is shown
+as "Network" under a heading of that name, like Nemo's, and opens
+network:///.
 """
-from gi.repository import Gio, GLib, Gtk, Pango
+import warnings
+
+from gi.repository import Gio, GLib, GObject, Gtk, Pango
 
 from . import _
 
-SECTIONS = {1: _("Places"), 2: _("Devices"), 3: _("Cloud"),
-            4: _("Bookmarks"), 5: _("Network"), 6: _("Other")}
+SECTIONS = {1: _("Places"), 2: _("Devices"), 3: _("Cloud"), 4: _("Bookmarks")}
 SECTION_MOUNTS = 2
+PLACE_CONNECT_TO_SERVER = 6     # GtkPlacesSidebarPlaceType
 
 
 def _find(widget, cls):
@@ -24,10 +35,27 @@ def _find(widget, cls):
     return None
 
 
+def _place_type(row):
+    try:
+        return int(row.get_property("place-type"))
+    except TypeError:               # not the private row class after all
+        return None
+
+
 class PlacesSidebar(Gtk.PlacesSidebar):
+    __gsignals__ = {
+        # The Network row was chosen.
+        "open-network": (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
+    NETWORK = Gio.File.new_for_uri("network:///")
+
     def __init__(self):
         super().__init__()
         self.set_show_desktop(True)
+        with warnings.catch_warnings():     # deprecated, and the only hook there is
+            warnings.simplefilter("ignore")
+            self.set_show_connect_to_server(True)
+        self.connect("show-connect-to-server", lambda sb: sb.emit("open-network"))
         self._location = None
         self._sync_id = 0
         self._align_id = 0
@@ -40,7 +68,7 @@ class PlacesSidebar(Gtk.PlacesSidebar):
             # every row as it is added.
             self._list.connect("add", self._on_row_added)
             for row in self._list.get_children():
-                self._decorate_device_row(row)
+                self._decorate_row(row)
 
     # -- location ------------------------------------------------------------
     def sync_location(self, gfile):
@@ -59,10 +87,16 @@ class PlacesSidebar(Gtk.PlacesSidebar):
             pass
         if self.get_location() is None and self._list is not None:
             self._list.unselect_all()
+            if self._location.get_uri_scheme() == "network":
+                # The Network row has no location GTK could match.
+                row = next((r for r in self._list.get_children()
+                            if _place_type(r) == PLACE_CONNECT_TO_SERVER), None)
+                if row is not None:
+                    self._list.select_row(row)
         return False
 
     def _on_row_added(self, listbox, row):
-        self._decorate_device_row(row)
+        self._decorate_row(row)
         if not self._sync_id:
             self._sync_id = GLib.idle_add(self._apply_location)
 
@@ -74,10 +108,14 @@ class PlacesSidebar(Gtk.PlacesSidebar):
         except TypeError:           # not the private row class after all
             row.set_header(None)
             return
-        if section == prev or section not in SECTIONS:
+        title = SECTIONS.get(section)
+        if _place_type(row) == PLACE_CONNECT_TO_SERVER:
+            # In the devices section by GTK's count; a section of its own here.
+            title, section = _("Network"), "network"
+        if section == prev or title is None:
             row.set_header(None)
             return
-        label = Gtk.Label(label=SECTIONS[section], xalign=0.0,
+        label = Gtk.Label(label=title, xalign=0.0,
                           margin_start=14, margin_end=8, margin_bottom=2,
                           margin_top=6 if before is None else 14)
         label.get_style_context().add_class("dim-label")
@@ -87,6 +125,15 @@ class PlacesSidebar(Gtk.PlacesSidebar):
         label.set_attributes(attrs)
         label.show()
         row.set_header(label)
+
+    # -- the rows ------------------------------------------------------------
+    def _decorate_row(self, row):
+        if _place_type(row) == PLACE_CONNECT_TO_SERVER:
+            row.set_property("label", _("Network"))
+            row.set_property("tooltip", _("Browse the network"))
+            row.set_property("start-icon", Gio.ThemedIcon.new("network-workgroup-symbolic"))
+        else:
+            self._decorate_device_row(row)
 
     # -- usage bars ----------------------------------------------------------
     def _decorate_device_row(self, row):

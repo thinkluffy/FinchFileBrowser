@@ -12,8 +12,8 @@ from .archive import (Archive, Extract, SevenZip, ask_archive, ask_password,
                       is_archive, needs_sevenzip)
 from .tab import Tab, location_name
 from .transfer import Transfer
-from .util import (confirm, forget_recent, launch_default, open_label, real_file,
-                   save_state, show_error)
+from .util import (confirm, forget_recent, is_jump, jump_target, launch_default,
+                   not_mounted, open_label, real_file, save_state, show_error)
 
 
 VIEW_MODES = ("columns", "grid")
@@ -206,6 +206,8 @@ class FinchWindow(Gtk.ApplicationWindow):
         # a new tab.
         self.sidebar.set_open_flags(Gtk.PlacesOpenFlags.NORMAL | Gtk.PlacesOpenFlags.NEW_TAB)
         self.sidebar.connect("open-location", self._on_sidebar_open)
+        self.sidebar.connect("open-network",
+                             lambda sb: self._on_sidebar_open(sb, sb.NETWORK, 0))
         self.sidebar.connect("show-error-message",
                              lambda sb, p, s: show_error(self, p, s))
         # Files dropped on a place in the sidebar go there too.
@@ -440,11 +442,17 @@ class FinchWindow(Gtk.ApplicationWindow):
         self.sidebar.refresh_usage()
 
     def _on_listing_loaded(self, tab):
-        """One of `tab`'s listings was (re-)read: the counts may differ, and
-        a folder the path bar still shows may be gone."""
+        """One of `tab`'s listings was (re-)read: the counts may differ, a
+        folder the path bar still shows may be gone, and a share that was
+        mounted for it has a name now."""
         self._update_status()
+        name = location_name(tab.location)
+        tab.title.set_text(name)
         if tab is self.tab:
             self.pathbar.prune()
+            self.pathbar.relabel()
+            self.header.set_title(name)
+            self.set_title(name)
 
     def _on_location_changed(self, tab):
         """A tab moved: the title bar follows the current tab only."""
@@ -499,7 +507,9 @@ class FinchWindow(Gtk.ApplicationWindow):
             return False
         parts = [ngettext("%d item", "%d items", col.item_count) % col.item_count]
         _gfiles, infos = col.selected_all()
-        files = [i for i in infos if i.get_file_type() != Gio.FileType.DIRECTORY]
+        # Folders and network computers / shares have no size worth adding up.
+        files = [i for i in infos
+                 if i.get_file_type() != Gio.FileType.DIRECTORY and not is_jump(i)]
         if len(infos) > 1:
             parts.append(ngettext("%d selected", "%d selected", len(infos)) % len(infos))
         if files:
@@ -572,6 +582,11 @@ class FinchWindow(Gtk.ApplicationWindow):
         try:
             info = gfile.query_info("standard::type", Gio.FileQueryInfoFlags.NONE, None)
         except GLib.Error as err:
+            if not_mounted(err):
+                # A share not connected yet: its listing mounts it.
+                self.set_root(gfile)
+                self._focus_files()
+                return
             show_error(self, _("Could not open path"), err.message)
             return
         if info.get_file_type() == Gio.FileType.DIRECTORY:
@@ -654,6 +669,18 @@ class FinchWindow(Gtk.ApplicationWindow):
                 item(_("Remove from Recent"), col.remove_recent, "list-remove-symbolic")
             item(_("Move to Trash"), col.trash_item, "user-trash-symbolic")
             item(_("Delete"), col.delete_item, "edit-delete-symbolic")
+        elif gfile is not None and is_jump(info):
+            # A computer of the network list, a share of a server: it can
+            # only be entered.
+            item(_("Open"), lambda: self.tab.open_jump(gfile, info), "document-open-symbolic")
+            item(_("Open in New Tab"), lambda: self.tab.open_jump(gfile, info, new_tab=True),
+                 "tab-new-symbolic")
+            target = jump_target(info)
+            if target is not None:
+                menu.append(Gtk.SeparatorMenuItem())
+                item(_("Open in Nemo"), lambda: self.open_in_nemo(target),
+                     "system-file-manager-symbolic")
+                item(_("Copy Path"), lambda: self.copy_path(target), "insert-link-symbolic")
         elif gfile is not None:
             item(*open_item([info], lambda: launch_default(gfile, self)))
             if is_dir:

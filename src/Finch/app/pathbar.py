@@ -126,6 +126,13 @@ class PathBar(Gtk.Box):
         del self._crumbs[idx:]
         self._update_sliders()
 
+    def relabel(self):
+        """The top of a server or share is called after its mount, which may
+        only have come about since the row was built: name it again."""
+        for g, btn in self._crumbs:
+            if g.get_parent() is None and g.get_uri_scheme() != "file":
+                btn.get_child().get_children()[-1].set_text(self._label(g))
+
     def show_entry(self):
         """Ctrl+L: the entry, with the path selected, until it is left."""
         if not self.entry_mode:

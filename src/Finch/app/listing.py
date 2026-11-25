@@ -14,8 +14,8 @@ import os
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk
 
 from . import ATTRS, C_FILE, C_INFO, C_ISDIR, C_NAME, _, ngettext
-from .util import (confirm, delete_recursive, forget_recent, natural_key, real_file,
-                   show_error)
+from .util import (confirm, delete_recursive, forget_recent, jump_target, mount_operation,
+                   natural_key, not_mounted, real_file, show_error)
 
 # Sort modes a listing understands; the window keeps the current one.
 SORT_MODES = ("name", "modified", "size", "kind")
@@ -223,21 +223,24 @@ class Listing(Gtk.Box):
         handler = self.connect("loaded", on_loaded)
         self._enumerate(gfile, emit=True)
 
-    def _enumerate(self, select, emit):
+    def _enumerate(self, select, emit, may_mount=True):
         self._gen += 1
         gen = self._gen
         self.gfile.enumerate_children_async(
             ATTRS, Gio.FileQueryInfoFlags.NONE, GLib.PRIORITY_DEFAULT, None,
-            self._on_enumerated, (gen, select, emit))
+            self._on_enumerated, (gen, select, emit, may_mount))
 
     def _on_enumerated(self, gfile, result, data):
-        gen, select, emit = data
+        gen, select, emit, may_mount = data
         if gen != self._gen:
             return
         try:
             enumerator = gfile.enumerate_children_finish(result)
         except GLib.Error as err:
-            self._show_message(err.message)
+            if may_mount and not_mounted(err):
+                self._mount(gen, select, emit)
+            else:
+                self._show_message(err.message)
             return
         infos = []
 
@@ -318,6 +321,32 @@ class Listing(Gtk.Box):
     def _show_message(self, text):
         self.message.set_text(text)
         self.stack.set_visible_child_name("message")
+
+    def _mount(self, gen, select, emit):
+        """The folder is on a share (or in an archive, a phone...) that is
+        not mounted: mount it, asking for a password when it wants one, then
+        list it. Tried once per listing; what goes wrong is shown in place
+        of the list."""
+        self._show_message(_("Connecting…"))
+
+        def on_mounted(gfile, result):
+            try:
+                gfile.mount_enclosing_volume_finish(result)
+            except GLib.Error as err:
+                if gen != self._gen:
+                    return
+                if err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.FAILED_HANDLED):
+                    # The password dialog was cancelled: nothing to add.
+                    self._show_message(_("Not connected"))
+                    return
+                if not err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.ALREADY_MOUNTED):
+                    self._show_message(err.message)
+                    return
+            if gen == self._gen:
+                self._enumerate(select, emit, may_mount=False)
+
+        self.gfile.mount_enclosing_volume(Gio.MountMountFlags.NONE, mount_operation(self),
+                                          None, on_mounted)
 
     def set_show_hidden(self, show):
         if show == self.show_hidden:
@@ -628,8 +657,13 @@ class Listing(Gtk.Box):
     def _press_middle(self, handle):
         """Middle-click on a folder: open it in a new tab, leave the
         selection alone."""
-        if handle is not None and self.store[handle][C_ISDIR]:
-            self.emit("open-new-tab", self.store[handle][C_FILE])
+        if handle is None:
+            return
+        row = self.store[handle]
+        # A computer or share of the network list opens where it points.
+        target = row[C_FILE] if row[C_ISDIR] else jump_target(row[C_INFO])
+        if target is not None:
+            self.emit("open-new-tab", target)
 
     def _press_context(self, handle, event):
         """Right-click: on one of several selected rows the selection stays

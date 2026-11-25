@@ -79,6 +79,7 @@ ATTRS = ",".join([
     "standard::name", "standard::display-name", "standard::type",
     "standard::icon", "standard::is-hidden", "standard::is-backup",
     "standard::content-type", "standard::size", "standard::symlink-target",
+    "standard::target-uri",
     "standard::is-symlink", "access::can-read", "access::can-write",
     "time::modified", "time::created", "trash::orig-path",
 ])

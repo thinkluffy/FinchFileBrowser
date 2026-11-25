@@ -2,7 +2,7 @@
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 from . import APP_ID, resource
-from .util import load_state
+from .util import load_state, not_mounted
 from .window import FinchWindow
 
 
@@ -63,7 +63,9 @@ class FinchApp(Gtk.Application):
         try:
             is_dir = gfile.query_info("standard::type", Gio.FileQueryInfoFlags.NONE,
                                       None).get_file_type() == Gio.FileType.DIRECTORY
-        except GLib.Error:
+        except GLib.Error as err:
+            if not_mounted(err):
+                return gfile, None      # a share: the listing connects to it
             parent = gfile.get_parent()
             if parent is None or not parent.query_exists(None):
                 return None

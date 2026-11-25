@@ -84,6 +84,36 @@ def launch_default(gfile, widget):
         show_error(widget.get_toplevel(), _("Could not open"), err.message)
 
 
+def is_jump(info):
+    """Is the listing entry `info` describes a pointer to another location
+    rather than a file or folder of its own? The computers of network:///
+    and the shares in a server's list are: entering one means going to
+    where it points (which may have to be mounted first), so they open on
+    activation like files do, not on selection like folders."""
+    return info is not None and info.get_file_type() in (Gio.FileType.SHORTCUT,
+                                                         Gio.FileType.MOUNTABLE)
+
+
+def jump_target(info):
+    """Where a pointer entry (see is_jump) leads, or None when it does not
+    say (an unmounted drive: it has to be mounted to find out) or is none."""
+    if not is_jump(info):
+        return None
+    uri = info.get_attribute_string("standard::target-uri")
+    return Gio.File.new_for_uri(uri) if uri else None
+
+
+def mount_operation(widget):
+    """A GtkMountOperation (the password / question dialogs of mounting)
+    for the window `widget` is in."""
+    top = widget.get_toplevel() if widget is not None else None
+    return Gtk.MountOperation.new(top if isinstance(top, Gtk.Window) else None)
+
+
+def not_mounted(err):
+    return err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.NOT_MOUNTED)
+
+
 def real_file(gfile):
     """The file an entry of recent:/// stands for; any other file is itself.
     The entries are virtual (recent:///<hash>): the backend cannot trash

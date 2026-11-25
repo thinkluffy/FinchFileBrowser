@@ -17,7 +17,7 @@ from . import _
 from .column import HANDLE_WIDTH, Column
 from .grid import Grid
 from .preview import Preview
-from .util import launch_default
+from .util import is_jump, jump_target, launch_default, mount_operation, show_error
 
 MAX_HISTORY = 100
 
@@ -40,8 +40,21 @@ def location_name(gfile):
     """What the title bar and the tab call `gfile`."""
     name = gfile.get_basename() or gfile.get_parse_name()
     if gfile.get_parent() is None:
-        name = {"trash": _("Trash"), "recent": _("Recent"), "network": _("Network"),
-                "computer": _("Computer")}.get(gfile.get_uri_scheme(), name)
+        scheme = gfile.get_uri_scheme()
+        special = {"trash": _("Trash"), "recent": _("Recent"), "network": _("Network"),
+                   "computer": _("Computer")}.get(scheme)
+        if special is not None:
+            return special
+        if scheme != "file":
+            # The top of a server or share ("/" by its basename): what its
+            # mount is called, or its address while it is not mounted.
+            try:
+                mount = gfile.find_enclosing_mount(None)
+                if mount.get_root().equal(gfile):
+                    return mount.get_name()
+            except GLib.Error:
+                pass
+            return gfile.get_parse_name()
     return name
 
 
@@ -185,6 +198,31 @@ class Tab(Gtk.Box):
         self.set_root(gfile)
         self.columns[0].view.grab_focus()
 
+    def open_jump(self, gfile, info, new_tab=False):
+        """Enter the pointer entry `gfile` (a computer of the network list,
+        a share of a server, a drive): go where it points, here or in a new
+        tab. One that does not say where it points is mounted first."""
+        def go(target):
+            if new_tab:
+                self.win.open_tab(target, switch=False)
+            else:
+                self.set_root(target, focus=True)
+
+        target = jump_target(info)
+        if target is not None:
+            go(target)
+            return
+
+        def on_mounted(source, result):
+            try:
+                go(source.mount_mountable_finish(result))
+            except GLib.Error as err:
+                if not err.matches(Gio.io_error_quark(), Gio.IOErrorEnum.FAILED_HANDLED):
+                    show_error(self.win, _("Could not open"), err.message)
+
+        gfile.mount_mountable(Gio.MountMountFlags.NONE, mount_operation(self.win),
+                              None, on_mounted)
+
     def set_view_mode(self):
         """The window's view mode changed: show the same place in the new
         look, keeping the selection where it makes sense."""
@@ -319,7 +357,8 @@ class Tab(Gtk.Box):
 
     def _scroll_to_end(self):
         adj = self.hsw.get_hadjustment()
-        adj.set_value(adj.get_upper() - adj.get_page_size())
+        if adj is not None:         # None once the tab has been destroyed
+            adj.set_value(adj.get_upper() - adj.get_page_size())
         return False
 
     # -- column signals --------------------------------------------------------
@@ -376,7 +415,9 @@ class Tab(Gtk.Box):
         self.win._update_status()
 
     def _on_item_activated(self, col, gfile, info):
-        if info.get_file_type() != Gio.FileType.DIRECTORY:
+        if is_jump(info):
+            self.open_jump(gfile, info)
+        elif info.get_file_type() != Gio.FileType.DIRECTORY:
             launch_default(gfile, self.win)
         elif self.grid_mode:
             self.set_root(gfile, focus=True)
@@ -396,6 +437,12 @@ class Tab(Gtk.Box):
                 return  # never park the focus inside an empty column
             nxt.view.grab_focus()
             nxt.select_first()
+        elif direction == "right":
+            # No column to the right of a computer or share: going right
+            # enters it.
+            gfile, info = col.selected()
+            if is_jump(info):
+                self.open_jump(gfile, info)
         elif direction == "up":
             self.go_up()
         self.win._update_status()
