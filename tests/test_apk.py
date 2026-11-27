@@ -2,12 +2,13 @@
 # thumbnail of the icon view. The packages in tests/data were built with
 # aapt2 (see tests/data/make_apks.py): a bitmap icon in two densities, an
 # adaptive icon (colour behind a vector), a vector with a gradient, none.
-# The preview pane also says which package it is and its version.
+# The preview pane also says which package it is and its version, and the
+# rows of the columns carry the icon too.
 import os, shutil, sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "Finch"))
 import gi; gi.require_version("Gtk", "3.0"); gi.require_version("Gdk", "3.0")
-from gi.repository import GLib, Gio, Gtk
-from app import apk, thumbs, C_NAME, C_FILE, C_INFO
+from gi.repository import GLib, Gio, GdkPixbuf, Gtk
+from app import apk, thumbs, C_NAME, C_FILE, C_INFO, C_ICON
 from app.application import FinchApp
 DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 work = os.path.join(os.environ["FINCH_SANDBOX"], "files", "apks")
@@ -15,6 +16,7 @@ os.makedirs(work)
 for name in ("bitmap.apk", "adaptive.apk", "vector.apk", "noicon.apk"):
     shutil.copy(os.path.join(DATA, name), work)
 open(os.path.join(work, "broken.apk"), "w").write("not a zip at all")
+open(os.path.join(work, "notes.txt"), "w").write("not a package")
 P = lambda name: os.path.join(work, name)
 results = []
 def check(name, ok, extra=""):
@@ -72,6 +74,10 @@ def mode(m): w().lookup_action("view-mode").change_state(GLib.Variant("s", m))
 def col(): return w().tab.columns[0]
 def row(name): return next(r for r in col().store if r[C_NAME] == name)
 def select(name): col()._select_only(col().handle_of(row(name)[C_FILE]))
+def logo(name):
+    """The row's icon if it is a picture (not the file type's themed icon)."""
+    icon = row(name)[C_ICON]
+    return icon if isinstance(icon, GdkPixbuf.Pixbuf) else None
 def facts():
     """The details rows the package fills in, {label: value}."""
     return {k: v for k, v in w().tab.preview._rows if k in ("Package", "Version")}
@@ -83,8 +89,18 @@ def s1():
     check("packages are recognised by type", row("vector.apk")[C_INFO].get_content_type() == apk.CONTENT_TYPE, row("vector.apk")[C_INFO].get_content_type())
     select("adaptive.apk")
     return later(s2)
+def rows_checked(when):
+    got = {n: logo(n) for n in ("bitmap.apk", "adaptive.apk", "vector.apk", "noicon.apk", "broken.apk")}
+    check("columns%s: the rows of packages with an icon show it, at the size of a row icon" % when,
+          all(dims(got[n]) == (16, 16) for n in ("bitmap.apk", "adaptive.apk", "vector.apk")), str({n: dims(p) for n, p in got.items()}))
+    check("columns%s: it is the package's icon" % when, got["bitmap.apk"] is not None and near(px(got["bitmap.apk"], 8, 8), (255, 0, 0, 255))
+          and got["adaptive.apk"] is not None and near(px(got["adaptive.apk"], 8, 8), (255, 0, 0, 255)) and near(px(got["adaptive.apk"], 8, 3), (0, 255, 0, 255)))
+    check("columns%s: a package without icon and a damaged one keep the file type's icon" % when, got["noicon.apk"] is None and got["broken.apk"] is None
+          and row("noicon.apk")[C_ICON].equal(row("noicon.apk")[C_INFO].get_icon()))
 def s2():
     pv = w().tab.preview
+    rows_checked("")
+    check("other files keep theirs", logo("notes.txt") is None)
     check("preview: the package's icon is the picture", pv is not None and pv._showing == "content" and dims(pv._pixbuf) == (256, 256) and near(px(pv._pixbuf, 128, 128), (255, 0, 0, 255)), str(pv and (pv._showing, dims(pv._pixbuf))))
     r = row("adaptive.apk")
     hit = thumbs.disk_lookup(r[C_FILE].get_uri(), r[C_INFO].get_attribute_uint64("time::modified"))
@@ -123,7 +139,10 @@ def s5():
     pb = got["bitmap.apk"][1]
     check("icon view: the thumbnail is the icon", pb is not None and near(px(pb, pb.get_width() // 2, pb.get_height() // 2), (255, 0, 0, 255)))
     mode("columns")
-    return later(lambda: (app.quit(), False)[1], 300)
+    return later(s6, 300)
+def s6():
+    rows_checked(" again")      # known by now: there as soon as the list is
+    return later(lambda: (app.quit(), False)[1], 100)
 later(s1, 1500)
 app.run(["finch", work])
 print("%d/%d passed" % (sum(ok for _n, ok in results), len(results)))

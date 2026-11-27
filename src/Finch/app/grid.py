@@ -285,12 +285,6 @@ class Grid(Listing):
         # the picture or icon, centred in the icon box
         pixbuf = None if is_dir else self._thumbnail(idx, gfile, info, wanted)
         box_x, box_y = x + (cell_w - ICON_SIZE) // 2, y + ICON_TOP
-        if selected:
-            ok, fg = ctx.lookup_color("theme_fg_color")
-            if ok:
-                cr.set_source_rgba(fg.red, fg.green, fg.blue, 0.1)
-                _rounded_rect(cr, box_x - 6, box_y - 6, ICON_SIZE + 12, ICON_SIZE + 12, 6)
-                cr.fill()
         if pixbuf is not None:
             scale = self.view.get_scale_factor()
             w, h = pixbuf.get_width() / scale, pixbuf.get_height() / scale
@@ -320,7 +314,8 @@ class Grid(Listing):
                 cr.stroke()
 
         # the name, on a pill in the selection colour when selected (not
-        # while the rename box sits over it)
+        # while the rename box sits over it). The name alone says what is
+        # selected: nothing is drawn behind the icon.
         if self._entry is not None and idx == self._entry_idx and not plain:
             return
         layout.set_text(name, -1)

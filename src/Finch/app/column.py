@@ -3,12 +3,14 @@ edge. What a listing does regardless of its look is in listing.py."""
 import cairo
 from gi.repository import Gdk, Gtk, Pango
 
-from . import C_FILE, C_ICON, C_INFO, C_ISDIR, C_NAME, MIN_COL_WIDTH
+from . import C_FILE, C_ICON, C_INFO, C_ISDIR, C_NAME, MIN_COL_WIDTH, apk, thumbs
+from .grid import ICON_SIZE as GRID_ICON_SIZE
 from .listing import (DND_TARGETS, SORT_MODES, Listing, _dragging,  # noqa: F401 (re-exported)
                       drop_action)
 
 # The drag handle on a column's right edge: a column takes its width plus this.
 HANDLE_WIDTH = 8
+ROW_ICON = 16               # what Gtk.IconSize.MENU, the size of a row's icon, comes to
 
 
 class ListView(Gtk.TreeView):
@@ -27,6 +29,10 @@ class Column(Listing):
 
     def __init__(self, gfile, width, show_hidden, sort_by="name", sort_reversed=False):
         self._width = width
+        # Android packages show their own icon: made in the background (the
+        # icon grid's thumbnails, scaled down), {cache key: row} still waiting.
+        self._logos = None
+        self._logo_rows = {}
         super().__init__(gfile, show_hidden, sort_by, sort_reversed)
 
         # resize handle
@@ -45,6 +51,54 @@ class Column(Listing):
         self.handle.connect("motion-notify-event", self._on_handle_motion)
         self.handle.connect("button-release-event", self._on_handle_release)
         self.pack_start(self.handle, False, False, 0)
+
+    # -- application icons of Android packages -----------------------------------
+    def _rows_changed(self):
+        """The store was rebuilt: the packages in it get their launcher icon
+        in place of the file type's, at once when it is known, else as soon
+        as the worker thread has read it."""
+        super()._rows_changed()
+        self._logo_rows = {}
+        requests = []
+        store = self.store
+        for i, info in enumerate(store.get_value(it, C_INFO) for it in _iters(store)):
+            if info.get_content_type() != apk.CONTENT_TYPE:
+                continue
+            gfile = store[i][C_FILE]
+            mtime, size = info.get_attribute_uint64("time::modified"), info.get_size()
+            key = thumbs.stamp(gfile, mtime, size)
+            known, pixbuf = thumbs.thumb_get(key)
+            if not known:
+                self._logo_rows[key] = Gtk.TreeRowReference.new(store, Gtk.TreePath(i))
+                requests.append((key, gfile, gfile.get_path(), apk.CONTENT_TYPE, mtime, size))
+            elif pixbuf is not None:
+                store[i][C_ICON] = self._row_icon(pixbuf)
+        if requests and self._logos is None:
+            # The grid's size, so that both looks share the pictures.
+            self._logos = thumbs.Thumbnailer(GRID_ICON_SIZE * self.view.get_scale_factor(),
+                                             self._on_logo_ready)
+        if self._logos is not None:
+            self._logos.want(requests)
+
+    def _row_icon(self, pixbuf):
+        """`pixbuf` at the size of a row's icon. A pixbuf is a GIcon, which
+        the renderer shows at its own size."""
+        return thumbs._fit(pixbuf, ROW_ICON * self.view.get_scale_factor())
+
+    def _on_logo_ready(self):
+        for key, ref in list(self._logo_rows.items()):
+            known, pixbuf = thumbs.thumb_get(key)
+            if not known:
+                continue
+            del self._logo_rows[key]
+            if pixbuf is not None and ref.valid():
+                self.store[ref.get_path()][C_ICON] = self._row_icon(pixbuf)
+        return False
+
+    def _on_destroy(self, *args):
+        if self._logos is not None:
+            self._logos.stop()
+        super()._on_destroy(*args)
 
     def _make_view(self):
         view = ListView(model=self.store, headers_visible=False,
@@ -291,3 +345,11 @@ class Column(Listing):
         apply_all = bool(event.state & Gdk.ModifierType.SHIFT_MASK)
         self.emit("width-changed", self.sw.get_size_request()[0], apply_all)
         return True
+
+
+def _iters(store):
+    """Every row of `store` as a Gtk.TreeIter, top to bottom."""
+    it = store.get_iter_first()
+    while it is not None:
+        yield it
+        it = store.iter_next(it)

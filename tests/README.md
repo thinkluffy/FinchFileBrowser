@@ -48,7 +48,7 @@ seconds (default 150).
 | `test_tabs`, `test_tabdrop`, `test_detach` | tabs: opening, switching, dragging between windows |
 | `test_grid`, `test_emblems` | icon view and its emblems |
 | `test_view_switch` | switching between columns and icon view stays in the current folder, and back / forward across the two |
-| `test_apk` | Android packages: launcher icon in the preview pane and the icon view, package name and version in the preview's details |
+| `test_apk` | Android packages: launcher icon in the preview pane, the icon view and the rows of the columns; package name and version in the preview's details |
 | `test_multi`, `test_sort` | multi-selection, sorting |
 | `test_dnd` | where drops go and which are refused |
 | `test_recent_delete` | trash / delete / remove in Recent |
