@@ -13,7 +13,7 @@ from .archive import (Archive, Extract, SevenZip, ask_archive, ask_password,
 from .tab import Tab, location_name
 from .transfer import Transfer
 from .util import (confirm, forget_recent, is_jump, jump_target, launch_default,
-                   not_mounted, open_label, real_file, save_state, show_error)
+                   not_mounted, note_opened, open_label, real_file, save_state, show_error)
 
 
 VIEW_MODES = ("columns", "grid")
@@ -910,10 +910,13 @@ class FinchWindow(Gtk.ApplicationWindow):
             app_info = dlg.get_app_info()
             if app_info is not None:
                 ctx = self.get_display().get_app_launch_context()
+                real = real_file(gfile)     # from Recent: the file itself
                 try:
-                    app_info.launch([gfile], ctx)
+                    app_info.launch([real], ctx)
                 except GLib.Error as err:
                     show_error(self, _("Could not open"), err.message)
+                else:
+                    note_opened(real)
         dlg.destroy()
 
     def open_in_nemo(self, gfile):
@@ -930,7 +933,7 @@ class FinchWindow(Gtk.ApplicationWindow):
                     target = gfile.get_parent() or gfile
             except GLib.Error:
                 pass
-            launch_default(target, self)
+            launch_default(target, self, remember=False)
 
     def open_terminal(self, gfile):
         path = gfile.get_path() if gfile is not None else None

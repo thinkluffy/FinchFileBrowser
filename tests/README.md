@@ -31,6 +31,11 @@ tests. No test opens or mounts a drive; keep it that way.
 (`~/finch-…`) and delete it at the end; one that times out can leave it
 behind.
 
+Folders are watched with inotify. When the user's inotify instances are used up
+(`fs.inotify.max_user_instances`, 128 by default; a second desktop session is
+enough), no monitor can be made and every check that waits for one fails, as
+does Recent: look for "Too many open files" in the output of `-v`.
+
 Needs `Xephyr`, `xdotool`, `xdpyinfo`, `dbus-run-session` and `python3-gi`;
 the archive tests need `7z`. `FINCH_TEST_TIMEOUT` is the limit per test in
 seconds (default 150).
@@ -49,9 +54,11 @@ seconds (default 150).
 | `test_grid`, `test_emblems` | icon view and its emblems |
 | `test_view_switch` | switching between columns and icon view stays in the current folder, and back / forward across the two |
 | `test_apk` | Android packages: launcher icon in the preview pane, the icon view and the rows of the columns; package name and version in the preview's details |
+| `test_row_pictures` | thumbnails of pictures and videos as the row icons of the columns: only for the rows in view, kept across reloads, a video's once the preview has rendered it |
 | `test_multi`, `test_sort` | multi-selection, sorting |
 | `test_dnd` | where drops go and which are refused |
 | `test_recent_delete` | trash / delete / remove in Recent |
+| `test_recent_open` | a file opened from Finch goes on the recently used list; opened from Recent it is the real file that is launched; thumbnails and preview of Recent's entries |
 | `test_network` | sidebar Network row, entering computers and shares, mounting on demand |
 | `test_preview`, `test_preview_info`, `test_preview_width`, `test_flash` | preview pane |
 | `test_openwith`, `test_about` | context menu "Open With …", About dialog |
@@ -62,8 +69,14 @@ seconds (default 150).
 gvfs' archive backend for a location that has to be mounted. Password
 prompts and real SMB shares are not covered.
 
+`test_recent_open` never starts a program: it replaces
+`Gio.AppInfo.launch_default_for_uri` with a recorder.
+
 `test_apk` reads four small packages in `data/`, built by the real `aapt2`
 (`data/make_apks.py` rebuilds them; needs the Android SDK).
+`test_row_pictures` uses `data/clip.avi`, five frames of a test pattern made
+with `gst-launch-1.0` (`videotestsrc ! jpegenc ! avimux`); its check of the
+preview's frame is skipped without `ffmpegthumbnailer`.
 
 `test_emblems.py` and `test_about.py` save a screenshot when given a file
 name: `tests/run.sh -- python3 tests/test_emblems.py /tmp/emblems.png`.

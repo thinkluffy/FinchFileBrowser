@@ -15,7 +15,7 @@ except (ImportError, ValueError):
 from . import (MAX_IMAGE_PREVIEW, MAX_PREVIEW_CONTENT, MAX_PREVIEW_MEDIA,
                MAX_TEXT_PREVIEW, MIN_PREVIEW_MEDIA, _, ngettext, thumbs)
 from . import apk
-from .util import is_jump, is_text_like, jump_target
+from .util import is_jump, is_text_like, jump_target, shown_file
 
 
 # How long the media box stays empty before the file's icon stands in for
@@ -324,7 +324,8 @@ class Preview(Gtk.Box):
 
         ctype = info.get_content_type() or ""
         size = info.get_size()
-        path = gfile.get_path()
+        source = shown_file(gfile, info)        # in Recent: the file itself
+        path = source.get_path()
         # What the worker thread reads for this kind of file, and the details
         # rows only it can fill in (shown as "…" until then).
         kind, pending = None, []
@@ -370,7 +371,7 @@ class Preview(Gtk.Box):
             GLib.timeout_add(PLACEHOLDER_DELAY, self._show_placeholder, self._gen)
             mtime_s = info.get_attribute_uint64("time::modified")
             threading.Thread(target=self._read, daemon=True,
-                             args=(self._gen, gfile, path, kind, size, pending, mtime_s)).start()
+                             args=(self._gen, source, path, kind, size, pending, mtime_s)).start()
         else:
             self._show_placeholder(self._gen)   # no preview for this kind of file
 
@@ -434,7 +435,8 @@ class Preview(Gtk.Box):
         if pixbuf is not None:
             thumbs.memory_put(key, pixbuf, meta)
             if rendered and kind in ("pdf", "video", "apk"):
-                thumbs.disk_save(uri, mtime, size, pixbuf, meta)
+                if thumbs.disk_save(uri, mtime, size, pixbuf, meta):
+                    thumbs.thumb_forget(key)    # its row may show it now
         return meta, pixbuf
 
     def _on_standin(self, gen, pixbuf):

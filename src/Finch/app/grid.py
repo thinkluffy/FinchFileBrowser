@@ -20,6 +20,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from . import C_FILE, C_INFO, C_ISDIR, C_NAME, apk, archive, thumbs
 from .listing import DND_TARGETS, Listing, _dragging
+from .util import shown_file
 
 ICON_SIZE = 64
 CELL_MIN_WIDTH = 112        # cells widen to share each row evenly
@@ -390,6 +391,7 @@ class Grid(Listing):
         ctype = info.get_content_type() or ""
         if not archive.can_be_locked(ctype):
             return False
+        gfile = shown_file(gfile, info)         # in Recent: the file itself
         key = thumbs.stamp(gfile, info.get_attribute_uint64("time::modified"), info.get_size())
         known, encrypted = archive.lock_get(key)
         if not known:
@@ -403,6 +405,7 @@ class Grid(Listing):
         if not (ctype.startswith("image/") or ctype.startswith("video/")
                 or ctype in ("application/pdf", apk.CONTENT_TYPE)):
             return None
+        gfile = shown_file(gfile, info)         # in Recent: the file itself
         mtime, size = info.get_attribute_uint64("time::modified"), info.get_size()
         key = thumbs.stamp(gfile, mtime, size)
         known, pixbuf = thumbs.thumb_get(key)

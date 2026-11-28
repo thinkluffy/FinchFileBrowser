@@ -15,8 +15,9 @@ a placeholder to show while the full rendering is made.
 Android package ("package", "version", "code") is in them too, but is not
 written to disk: the spec has no chunk for it and it is quick to read again.
 
-Thumbnailer, at the end, serves the icon grid: small pictures made on a
-worker thread from the same caches (and, for images, from the file). Its
+Thumbnailer, at the end, serves the icon grid and the rows of the columns:
+small pictures made on a worker thread from the same caches (and, for
+images, from the file). Its
 base, Worker, is the thread-and-queue part on its own, for other facts the
 grid finds out in the background (whether an archive is encrypted).
 """
@@ -155,6 +156,7 @@ THUMB_ENTRIES = 4000                 # ~16 kB each at 64 px
 GRID_WRITE_SIZE = "large"            # images rendered for the grid are kept at 256 px
 _thumbs = OrderedDict()              # stamp -> small pixbuf, or None (nothing to show)
 _thumbs_lock = threading.Lock()
+_watchers = []                       # see watch()
 
 
 def thumb_get(key):
@@ -173,6 +175,34 @@ def _thumb_put(key, pixbuf):
         _thumbs.move_to_end(key)
         while len(_thumbs) > THUMB_ENTRIES:
             _thumbs.popitem(last=False)
+
+
+def thumb_forget(key):
+    """A picture of the file has just been written to the disk cache (the
+    preview pane rendered a video frame): if the file is down as having
+    none, look again. Callable from any thread."""
+    with _thumbs_lock:
+        if key not in _thumbs or _thumbs[key] is not None:
+            return
+        del _thumbs[key]
+    GLib.idle_add(_tell_watchers)
+
+
+def watch(callback):
+    """Call `callback` on the main loop whenever a file that had no picture
+    may have got one."""
+    _watchers.append(callback)
+
+
+def unwatch(callback):
+    if callback in _watchers:
+        _watchers.remove(callback)
+
+
+def _tell_watchers():
+    for callback in list(_watchers):
+        callback()
+    return False
 
 
 def _fit(pixbuf, bound):

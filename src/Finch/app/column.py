@@ -1,12 +1,13 @@
 """One Miller column: a directory as a list, with a drag handle on its right
 edge. What a listing does regardless of its look is in listing.py."""
 import cairo
-from gi.repository import Gdk, Gtk, Pango
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
 
 from . import C_FILE, C_ICON, C_INFO, C_ISDIR, C_NAME, MIN_COL_WIDTH, apk, thumbs
 from .grid import ICON_SIZE as GRID_ICON_SIZE
 from .listing import (DND_TARGETS, SORT_MODES, Listing, _dragging,  # noqa: F401 (re-exported)
                       drop_action)
+from .util import shown_file
 
 # The drag handle on a column's right edge: a column takes its width plus this.
 HANDLE_WIDTH = 8
@@ -29,11 +30,16 @@ class Column(Listing):
 
     def __init__(self, gfile, width, show_hidden, sort_by="name", sort_reversed=False):
         self._width = width
-        # Android packages show their own icon: made in the background (the
-        # icon grid's thumbnails, scaled down), {cache key: row} still waiting.
-        self._logos = None
-        self._logo_rows = {}
+        # Pictures, videos and Android packages show themselves in place of
+        # the file type's icon: the icon grid's thumbnails, scaled down, made
+        # in the background for the rows in view. What the rows show by now,
+        # {file name: (mtime, size, pixbuf)}, to put back when the list is
+        # rebuilt.
+        self._thumbs = None
+        self._pictures = {}
+        self._pictures_id = 0
         super().__init__(gfile, show_hidden, sort_by, sort_reversed)
+        thumbs.watch(self._queue_pictures)
 
         # resize handle
         self.handle = Gtk.EventBox()
@@ -52,52 +58,77 @@ class Column(Listing):
         self.handle.connect("button-release-event", self._on_handle_release)
         self.pack_start(self.handle, False, False, 0)
 
-    # -- application icons of Android packages -----------------------------------
+    # -- the files' own pictures as row icons -----------------------------------
     def _rows_changed(self):
-        """The store was rebuilt: the packages in it get their launcher icon
-        in place of the file type's, at once when it is known, else as soon
-        as the worker thread has read it."""
+        """The store was rebuilt: rows that had their picture get it back at
+        once (a reload must not flash the file type's icons), the others
+        when they come into view."""
         super()._rows_changed()
-        self._logo_rows = {}
+        had, self._pictures = self._pictures, {}
+        if had:
+            store = self.store
+            for it in _iters(store):
+                info = store.get_value(it, C_INFO)
+                name = info.get_name()
+                picture = had.get(name)
+                if picture is not None and picture[:2] == _version(info):
+                    store.set_value(it, C_ICON, picture[2])
+                    self._pictures[name] = picture
+        self._queue_pictures()
+
+    def _queue_pictures(self, *_args):
+        """Look at the rows in view once the main loop is idle. Also the
+        view's "draw" handler: whatever brings rows into view draws them."""
+        if not self._pictures_id:
+            self._pictures_id = GLib.idle_add(self._show_pictures)
+        return False
+
+    def _show_pictures(self):
+        """Give the rows in view their picture, asking the worker thread for
+        the ones not made yet (and only for those: scrolling on drops the
+        requests for rows left behind)."""
+        self._pictures_id = 0
+        view, store = self.view, self.store
+        span = view.get_visible_range() if view.get_realized() else None
         requests = []
-        store = self.store
-        for i, info in enumerate(store.get_value(it, C_INFO) for it in _iters(store)):
-            if info.get_content_type() != apk.CONTENT_TYPE:
-                continue
-            gfile = store[i][C_FILE]
-            mtime, size = info.get_attribute_uint64("time::modified"), info.get_size()
-            key = thumbs.stamp(gfile, mtime, size)
-            known, pixbuf = thumbs.thumb_get(key)
-            if not known:
-                self._logo_rows[key] = Gtk.TreeRowReference.new(store, Gtk.TreePath(i))
-                requests.append((key, gfile, gfile.get_path(), apk.CONTENT_TYPE, mtime, size))
-            elif pixbuf is not None:
-                store[i][C_ICON] = self._row_icon(pixbuf)
-        if requests and self._logos is None:
+        if span is not None:
+            first, last = span[0].get_indices()[0], span[1].get_indices()[0]
+            for i in range(first, min(last, len(store) - 1) + 1):
+                row = store[i]
+                if isinstance(row[C_ICON], GdkPixbuf.Pixbuf):
+                    continue
+                info = row[C_INFO]
+                ctype = info.get_content_type() or ""
+                if not (ctype.startswith(("image/", "video/")) or ctype == apk.CONTENT_TYPE):
+                    continue
+                gfile = shown_file(row[C_FILE], info)    # in Recent: the file itself
+                mtime, size = _version(info)
+                key = thumbs.stamp(gfile, mtime, size)
+                known, pixbuf = thumbs.thumb_get(key)
+                if not known:
+                    requests.append((key, gfile, gfile.get_path(), ctype, mtime, size))
+                elif pixbuf is not None:
+                    # A pixbuf is a GIcon, which the renderer shows at its
+                    # own size.
+                    side = ROW_ICON * view.get_scale_factor()
+                    icon = _squared(thumbs._fit(pixbuf, side), side)
+                    row[C_ICON] = icon
+                    self._pictures[info.get_name()] = (mtime, size, icon)
+        if requests and self._thumbs is None:
             # The grid's size, so that both looks share the pictures.
-            self._logos = thumbs.Thumbnailer(GRID_ICON_SIZE * self.view.get_scale_factor(),
-                                             self._on_logo_ready)
-        if self._logos is not None:
-            self._logos.want(requests)
-
-    def _row_icon(self, pixbuf):
-        """`pixbuf` at the size of a row's icon. A pixbuf is a GIcon, which
-        the renderer shows at its own size."""
-        return thumbs._fit(pixbuf, ROW_ICON * self.view.get_scale_factor())
-
-    def _on_logo_ready(self):
-        for key, ref in list(self._logo_rows.items()):
-            known, pixbuf = thumbs.thumb_get(key)
-            if not known:
-                continue
-            del self._logo_rows[key]
-            if pixbuf is not None and ref.valid():
-                self.store[ref.get_path()][C_ICON] = self._row_icon(pixbuf)
+            self._thumbs = thumbs.Thumbnailer(GRID_ICON_SIZE * view.get_scale_factor(),
+                                              self._queue_pictures)
+        if self._thumbs is not None:
+            self._thumbs.want(requests)
         return False
 
     def _on_destroy(self, *args):
-        if self._logos is not None:
-            self._logos.stop()
+        thumbs.unwatch(self._queue_pictures)
+        if self._pictures_id:
+            GLib.source_remove(self._pictures_id)
+            self._pictures_id = 0
+        if self._thumbs is not None:
+            self._thumbs.stop()
         super()._on_destroy(*args)
 
     def _make_view(self):
@@ -132,6 +163,7 @@ class Column(Listing):
         name.connect("editing-canceled", self._on_editing_canceled)
 
         view.connect("row-activated", self._on_row_activated)
+        view.connect("draw", self._queue_pictures)
         view.connect("button-press-event", self._on_button_press)
         view.connect("button-release-event", self._on_button_release)
         view.connect("motion-notify-event", self._on_motion)
@@ -345,6 +377,26 @@ class Column(Listing):
         apply_all = bool(event.state & Gdk.ModifierType.SHIFT_MASK)
         self.emit("width-changed", self.sw.get_size_request()[0], apply_all)
         return True
+
+
+def _squared(pixbuf, side):
+    """`pixbuf`, no larger than `side`, in the middle of a transparent
+    square: the renderer puts an icon at the top left of the icon's box, so
+    a picture that is not square would sit off centre."""
+    width, height = pixbuf.get_width(), pixbuf.get_height()
+    if width == side and height == side:
+        return pixbuf
+    if not pixbuf.get_has_alpha():
+        pixbuf = pixbuf.add_alpha(False, 0, 0, 0)
+    square = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, side, side)
+    square.fill(0)
+    pixbuf.copy_area(0, 0, width, height, square, (side - width) // 2, (side - height) // 2)
+    return square
+
+
+def _version(info):
+    """(modification time, size): what a picture of the file is good for."""
+    return info.get_attribute_uint64("time::modified"), info.get_size()
 
 
 def _iters(store):

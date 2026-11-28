@@ -76,12 +76,30 @@ def open_label(infos):
     return _("Open With %s") % app.get_display_name(), app.get_icon() or "document-open-symbolic"
 
 
-def launch_default(gfile, widget):
+def launch_default(gfile, widget, remember=True):
+    """Open `gfile` with the program for its type; `remember` (not for a
+    folder) puts it on the recently used list."""
     ctx = widget.get_display().get_app_launch_context()
+    real = real_file(gfile)     # opened from Recent: the file itself, which any program can read
     try:
-        Gio.AppInfo.launch_default_for_uri(gfile.get_uri(), ctx)
+        Gio.AppInfo.launch_default_for_uri(real.get_uri(), ctx)
     except GLib.Error as err:
         show_error(widget.get_toplevel(), _("Could not open"), err.message)
+        return
+    if remember:
+        note_opened(real)
+
+
+def note_opened(gfile):
+    """`gfile` was just opened from here: put it on the recently used list,
+    the one the Recent place shows and every GTK program shares, as Nemo
+    does. Many programs never record what they open, so without this a
+    file opened from Finch would only get there by luck. The desktop's
+    privacy settings decide whether the list is kept and for how long."""
+    real = real_file(gfile)             # an entry of Recent: the file itself
+    if real.get_uri_scheme() in ("recent", "trash"):
+        return
+    Gtk.RecentManager.get_default().add_item(real.get_uri())
 
 
 def is_jump(info):
@@ -126,6 +144,19 @@ def real_file(gfile):
         return gfile
     uri = info.get_attribute_string("standard::target-uri")
     return Gio.File.new_for_uri(uri) if uri else gfile
+
+
+def shown_file(gfile, info):
+    """The file a row of a listing is about: for an entry of recent:/// the
+    file it stands for, which the listing's `info` names (so, unlike
+    real_file, nothing is asked), else `gfile` itself. The entry has no
+    path and nothing in the thumbnail cache; size and dates in `info` are
+    the file's own either way."""
+    if gfile.get_uri_scheme() == "recent":
+        uri = info.get_attribute_string("standard::target-uri")
+        if uri:
+            return Gio.File.new_for_uri(uri)
+    return gfile
 
 
 def forget_recent(gfile):

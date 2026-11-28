@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: finch\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-25 22:40+0800\n"
+"POT-Creation-Date: 2026-11-28 10:24+0800\n"
 "PO-Revision-Date: 2026-11-05 18:00+0800\n"
 "Last-Translator: Yuanbin Cai\n"
 "Language-Team: Chinese (Simplified)\n"
@@ -54,7 +54,7 @@ msgstr "“%s”有密码保护"
 msgid "Enter the password to extract it."
 msgstr "输入密码以解压。"
 
-#: ../app/archive.py:527 ../app/archive.py:549 ../app/util.py:156
+#: ../app/archive.py:527 ../app/archive.py:549 ../app/util.py:187
 msgid "_Cancel"
 msgstr "取消(_C)"
 
@@ -199,82 +199,82 @@ msgid "Information"
 msgstr "信息"
 
 #. TRANSLATORS: image size in pixels, e.g. "1920 × 1080"
-#: ../app/preview.py:332 ../app/preview.py:336 ../app/preview.py:456
+#: ../app/preview.py:333 ../app/preview.py:337 ../app/preview.py:458
 msgid "Dimensions"
 msgstr "分辨率"
 
-#: ../app/preview.py:334 ../app/preview.py:458
+#: ../app/preview.py:335 ../app/preview.py:460
 msgid "Pages"
 msgstr "页数"
 
-#: ../app/preview.py:336 ../app/preview.py:460
+#: ../app/preview.py:337 ../app/preview.py:462
 msgid "Duration"
 msgstr "时长"
 
-#: ../app/preview.py:338 ../app/preview.py:462
+#: ../app/preview.py:339 ../app/preview.py:464
 msgid "Package"
 msgstr "包名"
 
-#: ../app/preview.py:338 ../app/preview.py:465 ../app/preview.py:467
+#: ../app/preview.py:339 ../app/preview.py:467 ../app/preview.py:469
 msgid "Version"
 msgstr "版本"
 
-#: ../app/preview.py:345
+#: ../app/preview.py:346
 msgid "Network location"
 msgstr "网络位置"
 
-#: ../app/preview.py:350
+#: ../app/preview.py:351
 msgid "Created"
 msgstr "创建时间"
 
-#: ../app/preview.py:351
+#: ../app/preview.py:352
 msgid "Modified"
 msgstr "修改时间"
 
-#: ../app/preview.py:357 ../app/preview.py:359
+#: ../app/preview.py:358 ../app/preview.py:360
 msgid "Links to"
 msgstr "链接到"
 
-#: ../app/preview.py:456
+#: ../app/preview.py:458
 #, python-format
 msgid "%d × %d"
 msgstr "%d × %d"
 
-#: ../app/preview.py:458
+#: ../app/preview.py:460
 #, python-format
 msgid "%d page"
 msgid_plural "%d pages"
 msgstr[0] "%d 页"
 
-#: ../app/preview.py:493 ../app/window.py:508
+#: ../app/preview.py:495 ../app/window.py:508
 #, python-format
 msgid "%d item"
 msgid_plural "%d items"
 msgstr[0] "%d 项"
 
-#: ../app/preview.py:496
+#: ../app/preview.py:498
 #, python-format
 msgid "%d folder"
 msgid_plural "%d folders"
 msgstr[0] "%d 个文件夹"
 
-#: ../app/preview.py:498
+#: ../app/preview.py:500
 #, python-format
 msgid "%d file"
 msgid_plural "%d files"
 msgstr[0] "%d 个文件"
 
 #. TRANSLATORS: separator between the parts of the status line
-#: ../app/preview.py:499 ../app/window.py:525 ../app/window.py:867
+#: ../app/preview.py:501 ../app/window.py:525 ../app/window.py:867
 msgid ", "
 msgstr "，"
 
-#: ../app/preview.py:506
+#: ../app/preview.py:508
 #, python-format
 msgid "and %d more…"
 msgstr "还有 %d 项…"
 
-#: ../app/preview.py:507
+#: ../app/preview.py:509
 msgid "Items"
 msgstr "项目"
 
@@ -320,7 +320,7 @@ msgstr "最近使用"
 msgid "Computer"
 msgstr "计算机"
 
-#: ../app/tab.py:232 ../app/util.py:84 ../app/window.py:916
+#: ../app/tab.py:232 ../app/util.py:87 ../app/window.py:917
 msgid "Could not open"
 msgstr "无法打开"
 
@@ -589,11 +589,11 @@ msgstr "Finder 风格的分栏文件浏览器"
 msgid "translator-credits"
 msgstr "Yuanbin Cai"
 
-#: ../app/window.py:938
+#: ../app/window.py:941
 msgid "Could not open terminal"
 msgstr "无法打开终端"
 
-#: ../app/window.py:939
+#: ../app/window.py:942
 msgid "Only local folders can be opened in a terminal."
 msgstr "只有本地目录才能在终端中打开。"
 
